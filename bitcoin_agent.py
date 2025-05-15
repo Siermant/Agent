@@ -359,10 +359,10 @@ def optimize_thresholds(history_data, model, current_data):
                 
                 # Normalizacja predicted_return i bardziej elastyczne warunki
                 normalized_return = (predicted_return - return_mean) / return_std if return_std != 0 else predicted_return
-                if normalized_return > 0.001 and sentiment > buy_threshold:  # Zmniejszamy próg dla kupna
+                if normalized_return > 0.002 and sentiment > buy_threshold:  # Zmniejszamy próg dla kupna
                     if wallet_sim.buy(price, 0.01):
                         buy_count += 1
-                elif normalized_return < -0.001 and sentiment < sell_threshold and wallet_sim.btc >= 0.01:  # Zmniejszamy próg dla sprzedaży
+                elif normalized_return < -0.002 and sentiment < sell_threshold and wallet_sim.btc >= 0.01:  # Zmniejszamy próg dla sprzedaży
                     if wallet_sim.sell(price, 0.01):
                         sell_count += 1
             
