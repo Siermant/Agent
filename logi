@@ -7,3 +7,16 @@
 2025-05-15 14:29:39,814 - INFO - Progi: Kupno -0.1, Sprzedaż -0.5, Interwał: 60 sekund
 2025-05-15 14:29:39,814 - INFO - Portfel: Wartość: 10036.773900000002 USD, Gotówka: 807.3135000000023 USD, BTC: 0.09, Proporcja BTC: 0.92, Proporcja gotówki: 0.08, Zrealizowany zysk: 0.00 USD, Niezrealizowany zysk: 9229.46 USD, Całkowity zysk: 9229.46 USD
 2025-05-15 14:29:39,814 - INFO - Portfel osiągnął limit zysków (+50%), zatrzymuję handel
+
+
+he industrys growth in the United… [+7459 chars]"}]}
+2025-05-15 15:07:42,443 - INFO - Średni sentyment z NewsAPI: -0.008445454545454546
+2025-05-15 15:07:42,444 - INFO - Pobieranie danych z CoinGecko API
+2025-05-15 15:07:42,990 - INFO - Wolumen 24h (USD): 27402455315, Kapitalizacja rynkowa (USD): 2038252053022
+2025-05-15 15:07:46,148 - INFO - Cechy modelu: {'lag1': {499: 102560.0}, 'lag2': {499: 102371.61}, 'volume_change': {499: -0.9225500502670182}, 'rsi': {499: 39.69624606850967}, 'macd': {499: -339.2438909221237}, 'macd_signal': {499: -334.2101391541881}, 'sma_20': {499: 102821.8735}, 'sma_50': {499: 103415.1606}, 'sentiment': {499: -0.008445454545454546}, 'seasonal_trend': {499: -0.048566275666412695}, 'volume_24h': {499: 27402455315}, 'market_cap': {499: 2038252053022}}
+2025-05-15 15:07:46,256 - INFO - Przewidywany zwrot: 0.000534217478521234, Sentyment: -0.008445454545454546, Trend sezonowy: -0.048566275666412695
+2025-05-15 15:07:46,259 - INFO - Wczytano konfigurację: Kupno -0.1, Sprzedaż -0.5, Interwał: 60 sekund
+2025-05-15 15:07:46,261 - INFO - Progi: Kupno -0.1, Sprzedaż -0.5, Interwał: 60 sekund
+2025-05-15 15:07:46,261 - INFO - Portfel: Wartość: 10041.699600000002 USD, Gotówka: 807.3135000000023 USD, BTC: 0.09, Proporcja BTC: 0.92, Proporcja gotówki: 0.08, Zrealizowany zysk: 0.00 USD, Niezrealizowany zysk: 9234.39 USD, Całkowity zysk: 9234.39 USD
+2025-05-15 15:07:46,262 - INFO - Portfel osiągnął limit zysków (+50%), zatrzymuję handel
+
