@@ -106,6 +106,11 @@ class VirtualWallet:
     def get_value(self, current_price):
         return self.cash + self.btc * current_price
 
+    def get_unrealized_profit(self, current_price):
+        if self.btc > 0:
+            return (current_price - self.average_buy_price) * self.btc
+        return 0
+
     def save_state(self):
         try:
             wallet_data = {
@@ -354,10 +359,10 @@ def optimize_thresholds(history_data, model, current_data):
                 
                 # Normalizacja predicted_return i bardziej elastyczne warunki
                 normalized_return = (predicted_return - return_mean) / return_std if return_std != 0 else predicted_return
-                if normalized_return > 0.005 and sentiment > buy_threshold:  # Zmniejszamy próg dla kupna
+                if normalized_return > 0.002 and sentiment > buy_threshold:  # Zmniejszamy próg dla kupna
                     if wallet_sim.buy(price, 0.01):
                         buy_count += 1
-                elif normalized_return < -0.005 and sentiment < sell_threshold and wallet_sim.btc >= 0.01:  # Zmniejszamy próg dla sprzedaży
+                elif normalized_return < -0.002 and sentiment < sell_threshold and wallet_sim.btc >= 0.01:  # Zmniejszamy próg dla sprzedaży
                     if wallet_sim.sell(price, 0.01):
                         sell_count += 1
             
@@ -537,9 +542,10 @@ def run_agent():
                 btc_value = wallet.btc * current_price
                 btc_ratio = btc_value / portfolio_value if portfolio_value > 0 else 0
                 cash_ratio = wallet.cash / wallet.initial_cash
-                total_profit = wallet.total_realized_profit + (current_price - wallet.average_buy_price) * wallet.btc if wallet.btc > 0 else wallet.total_realized_profit
+                unrealized_profit = wallet.get_unrealized_profit(current_price)
+                total_profit = wallet.total_realized_profit + unrealized_profit
                 
-                logging.info(f"Portfel: Wartość: {portfolio_value} USD, Gotówka: {wallet.cash} USD, BTC: {wallet.btc}, Proporcja BTC: {btc_ratio:.2f}, Proporcja gotówki: {cash_ratio:.2f}, Całkowity zysk: {total_profit:.2f} USD")
+                logging.info(f"Portfel: Wartość: {portfolio_value} USD, Gotówka: {wallet.cash} USD, BTC: {wallet.btc}, Proporcja BTC: {btc_ratio:.2f}, Proporcja gotówki: {cash_ratio:.2f}, Zrealizowany zysk: {wallet.total_realized_profit:.2f} USD, Niezrealizowany zysk: {unrealized_profit:.2f} USD, Całkowity zysk: {total_profit:.2f} USD")
                 
                 # Sprawdź, czy portfel osiągnął limit strat/zysków
                 if total_profit < -0.2 * wallet.initial_cash:  # 20% straty
@@ -547,6 +553,11 @@ def run_agent():
                     break
                 if total_profit > 0.5 * wallet.initial_cash:  # 50% zysku
                     logging.info("Portfel osiągnął limit zysków (+50%), zatrzymuję handel")
+                    break
+                
+                # Sprawdź, czy portfel jest w stanie krytycznym
+                if wallet.cash < 0.05 * wallet.initial_cash and wallet.btc == 0:
+                    logging.warning("Portfel w stanie krytycznym: brak gotówki i BTC, zatrzymuję handel")
                     break
                 
                 # Wykryj nagły spadek
@@ -561,8 +572,8 @@ def run_agent():
                     
                     # Logika handlu
                     cost = trade_amount * current_price
-                    should_buy = predicted_return > 0.001 and sentiment > buy_threshold and wallet.cash > cost and cash_ratio > 0.1  # Zaostrzamy warunek kupna
-                    should_sell = predicted_return < -0.001 and sentiment < sell_threshold and wallet.btc >= trade_amount  # Zaostrzamy warunek sprzedaży
+                    should_buy = predicted_return > 0.005 and sentiment > buy_threshold and wallet.cash > cost and cash_ratio > 0.1  # Zaostrzamy warunek kupna
+                    should_sell = predicted_return < -0.005 and sentiment < sell_threshold and wallet.btc >= trade_amount  # Zaostrzamy warunek sprzedaży
                     
                     # Stop-loss: sprzedaj, jeśli cena spadła o 5% poniżej średniej ceny kupna
                     if wallet.btc > 0 and current_price < wallet.average_buy_price * 0.95:
