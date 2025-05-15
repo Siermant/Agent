@@ -334,13 +334,18 @@ def optimize_thresholds(history_data, model, current_data):
     volatility = current_data['volatility'].iloc[-1] if 'volatility' in current_data else 0
     rsi = current_data['rsi'].iloc[-1]
     
+    # Oblicz zmienność sentymentu
+    sentiments = [entry['sentiment'] for entry in history_data]
+    sentiment_std = np.std(sentiments) if len(sentiments) > 1 else 0.1
+    logging.info(f"Zmienność sentymentu: {sentiment_std}")
+    
     # Dostosuj progi w zależności od zmienności i RSI
     volatility_factor = 1 + volatility / current_data['close'].iloc[-1]  # Normalizujemy zmienność względem ceny
     rsi_factor = 1 if 30 < rsi < 70 else (1.5 if rsi <= 30 else 0.5)  # Zwiększamy progi przy wyprzedaniu, zmniejszamy przy wykupieniu
     
     # Zakresy progów do przetestowania
-    buy_thresholds = np.linspace(-0.1 * volatility_factor * rsi_factor, 0.5 * volatility_factor * rsi_factor, 13)
-    sell_thresholds = np.linspace(-0.5 * volatility_factor * rsi_factor, 0.1 * volatility_factor * rsi_factor, 13)
+    buy_thresholds = np.linspace(-0.05 * volatility_factor * rsi_factor, 0.5 * volatility_factor * rsi_factor, 13)
+    sell_thresholds = np.linspace(-0.2 * volatility_factor * rsi_factor, 0.05 * volatility_factor * rsi_factor, 13)
     
     best_profit = float('-inf')
     best_buy_threshold = 0.1
@@ -359,10 +364,10 @@ def optimize_thresholds(history_data, model, current_data):
                 
                 # Normalizacja predicted_return i bardziej elastyczne warunki
                 normalized_return = (predicted_return - return_mean) / return_std if return_std != 0 else predicted_return
-                if normalized_return > 0.002 and sentiment > buy_threshold:  # Zmniejszamy próg dla kupna
+                if normalized_return > 0.001 and sentiment > buy_threshold:  # Zmniejszamy próg dla kupna
                     if wallet_sim.buy(price, 0.01):
                         buy_count += 1
-                elif normalized_return < -0.002 and sentiment < sell_threshold and wallet_sim.btc >= 0.01:  # Zmniejszamy próg dla sprzedaży
+                elif normalized_return < -0.001 and sentiment < sell_threshold and wallet_sim.btc >= 0.01:  # Zmniejszamy próg dla sprzedaży
                     if wallet_sim.sell(price, 0.01):
                         sell_count += 1
             
@@ -377,6 +382,8 @@ def optimize_thresholds(history_data, model, current_data):
                 best_buy_threshold = buy_threshold
                 best_sell_threshold = sell_threshold
     
+    # Zapewnij, że próg sprzedaży nie jest zbyt niski
+    best_sell_threshold = max(best_sell_threshold, -0.1)
     logging.info(f"Najlepsze progi: Kupno {best_buy_threshold}, Sprzedaż {best_sell_threshold}, Zysk: {best_profit}")
     return best_buy_threshold, best_sell_threshold
 
@@ -572,8 +579,8 @@ def run_agent():
                     
                     # Logika handlu
                     cost = trade_amount * current_price
-                    should_buy = predicted_return > 0.005 and sentiment > buy_threshold and wallet.cash > cost and cash_ratio > 0.1  # Zaostrzamy warunek kupna
-                    should_sell = predicted_return < -0.005 and sentiment < sell_threshold and wallet.btc >= trade_amount  # Zaostrzamy warunek sprzedaży
+                    should_buy = predicted_return > 0.005 and sentiment > buy_threshold and wallet.cash > cost and cash_ratio > 0.1
+                    should_sell = predicted_return < -0.005 and sentiment < sell_threshold and wallet.btc >= trade_amount
                     
                     # Stop-loss: sprzedaj, jeśli cena spadła o 5% poniżej średniej ceny kupna
                     if wallet.btc > 0 and current_price < wallet.average_buy_price * 0.95:
