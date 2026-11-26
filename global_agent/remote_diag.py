@@ -105,6 +105,8 @@ def snapshots(state, decisions, now):
               'paper_state':paper['state'] if paper['state'] in ('ok','waiting','disabled','feed_unavailable','incomplete_quotes','day_changed') else 'blocked',
               'backup_state':state.get('backup',{}).get('state','waiting'),
               'backup_day':state.get('backup',{}).get('day')}
+    resource_keys = ('memory_bytes','memory_limit_bytes','cpu_usage_usec_total','disk_free_bytes','disk_total_bytes')
+    status['resources'] = {k:state.get('resources',{}).get(k) for k in resource_keys}
     keys = ('account','initial_pln','cash_pln','equity_pln','valued_at','fresh','return_pct','current_drawdown_pct','fees_pln','fills','turnover_pln')
     rows = [{k:r[k] for k in keys} for r in state['statistics']]
     hourly = {'generated_utc':now.isoformat(), 'real_trading':False,'market_healthy':status['market_healthy'],'portfolios':rows}
