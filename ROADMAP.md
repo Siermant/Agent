@@ -27,3 +27,14 @@ Stan: 2026-11-26. Gałąź develop; istniejący bitcoin_agent.py pozostaje bez z
 
 ## Następny krok
 Rozwinąć i uruchomić silnik symulacji. Nie wdrażać automatycznie na main ani na Proxmox. Zweryfikować testy przed instalacją.
+
+## Porównanie wariantów (zatwierdzone)
+- A: trend, profil zachowawczy; cel ekspozycji 40%.
+- B: trend, mean reversion, breakout; cel 60%.
+- C: breakout, momentum, dynamic grid; cel 80%.
+- D: adaptacyjny wybór strategii, docelowo AI; cel do 80%.
+- E: pasywny benchmark: globalny ETF UCITS dla IKE i global, BTC spot dla krypto.
+- Cztery aktywne warianty po trzy niezależne portfele oraz trzy benchmarki, razem 15 portfeli o identycznych kapitałach w obrębie rodzaju rachunku. Łączny nominalny kapitał symulacji 491 300 PLN, nie kapitał rzeczywisty.
+- Wspólny czas startu, dane dostępne w danym momencie, koszty właściwe dla brokera, dywidendy, FX, realistyczne wykonanie. Raportujemy także wpływ odmiennej ekspozycji i ryzyka.
+- Metryki: stopa zwrotu netto, drawdown, Sharpe, profit factor, liczba transakcji, prowizje, błędy i wynik względem benchmarku. Cele badawcze 10–15% rocznie nie są prognozą ani warunkiem wymuszającym handel.
+- Moduł experiments.py definiuje profile i izolowane portfele w pamięci; strategie nie są jeszcze wykonywane, benchmark nie jest jeszcze wyceniany. Kolejny krok: trwała księga i testy.
