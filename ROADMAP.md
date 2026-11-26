@@ -38,3 +38,16 @@ Rozwinąć i uruchomić silnik symulacji. Nie wdrażać automatycznie na main an
 - Wspólny czas startu, dane dostępne w danym momencie, koszty właściwe dla brokera, dywidendy, FX, realistyczne wykonanie. Raportujemy także wpływ odmiennej ekspozycji i ryzyka.
 - Metryki: stopa zwrotu netto, drawdown, Sharpe, profit factor, liczba transakcji, prowizje, błędy i wynik względem benchmarku. Cele badawcze 10–15% rocznie nie są prognozą ani warunkiem wymuszającym handel.
 - Moduł experiments.py definiuje profile i izolowane portfele w pamięci; strategie nie są jeszcze wykonywane, benchmark nie jest jeszcze wyceniany. Kolejny krok: trwała księga i testy.
+
+## Architektura hybrydowa (zatwierdzona)
+- Pierwsze uruchomienie paper trading na osobnej VM Ubuntu Server 24.04 LTS w Proxmox, początkowo 2 vCPU i 3–4 GB RAM, po weryfikacji wolnych zasobów. Bez GUI; panel WWW.
+- Jedna aplikacja i wspólne dane dla 15 portfeli, lekkie modele ML, zadania treningowe z limitami CPU i RAM. SQLite WAL z jednym procesem zapisującym, dane historyczne Parquet w miarę potrzeb.
+- Przenośna instalacja Docker Compose, identyczna lokalnie i w chmurze; trwałe wolumeny, healthcheck, restart, wersjonowane migracje i kopie zapasowe.
+- Docelowo VPS w UE jako niezależna instancja główna: dane live, silnik strategii, kontrola ryzyka, księga, panel. Kandydat OVH VPS-2 (4 vCPU, 8 GB RAM); cenę i warunki sprawdzić przed zamówieniem. Bez zamówienia na tym etapie.
+- Proxmox: backtesting, trening, testy nowych wersji, szyfrowane kopie zapasowe i środowisko odtworzeniowe. Połączenie WireGuard; awaria domu nie może blokować głównej instancji VPS.
+- Nie synchronizować aktywnego pliku SQLite przez sieć; wykonywać spójne kopie przez SQLite backup API i testować odtwarzanie.
+- Tylko jedna instancja wykonawcza. Przejęcie awaryjne początkowo ręczne po potwierdzeniu zatrzymania poprzedniej instancji i uzgodnieniu zleceń oraz pozycji. Brak automatycznego failover przy ryzyku split-brain.
+- Blokować nowe pozycje przy nieaktualnych danych, utracie połączenia, niepewnym stanie zlecenia, niespójności salda lub awarii kontroli ryzyka. Docelowo zlecenia ochronne po stronie brokera, jeśli obsługiwane. Brak gwarancji ceny wykonania.
+- Panel dostępny przez VPN, uwierzytelnianie, monitoring heartbeat z niezależnego miejsca, alerty awarii, klucze poza repozytorium, bez uprawnień do wypłat. IB Gateway: uwzględnić ręczne uwierzytelnianie i wygaśnięcie sesji.
+- Żadnego automatycznego wdrożenia gałęzi develop; aktualizacje z zatwierdzonych wydań, test przed przełączeniem i procedura rollback uwzględniająca bazę danych.
+- Nadal tylko symulacja; rzeczywiste transakcje wymagają odrębnej decyzji i walidacji. VPS i VM nie zostały jeszcze utworzone.
