@@ -80,3 +80,10 @@ Rozwinąć i uruchomić silnik symulacji. Nie wdrażać automatycznie na main an
 - Dziennik decyzji w SQLite, deterministyczne ID, odzyskanie po przerwie między zapisem wykonania i decyzji, blokada lokalna flock. Brakujące/stare notowania lub FX, niekompletna historia i awaria blokują cykl; bez retroaktywnych wykonań. Brak automatycznego handlu realnego.
 - Integracja z pętlą i panelem; GTA_PAPER_CRYPTO=1 włącza symulację, domyślnie 0 do smoke testu na VM. Zaktualizowano compose i README.
 - Lokalnie wykonano 24/24 testów (18 wcześniejszych i 6 nowych); trzy pliki kodu/testów identyczne z blobami na GitHubie. Testy syntetyczne, nie dowód rentowności. Nie zweryfikowano połączenia OKX/NBP ani budowy kontenera w środowisku docelowym, brak wdrożenia. Następne: diagnostyka, raport i backup, szersze uniwersum i dane tradycyjnych rynków, kalendarze i FX, testy walk-forward i symulacja intraday. Nadal paper-only.
+
+## Stan v0.7.0-dev — diagnostyka i lokalne kopie
+- diagnostics.py: statystyki portfeli (zwrot od startu, bieżące obsunięcie, prowizje, obroty, liczba wykonań i ostatnia wycena każdego z zapisanych dni z 30 dni UTC), status świeżości. Brak wyceny pozostaje null. Porównanie A–E w panelu dla krypto; brak podatków i wyrównania ekspozycji.
+- raport.zip z panelu: trzy pliki JSON z dozwolonymi danymi symulacyjnymi, bez surowych baz, logów i kluczy. Nadal dane prywatne, nie publikować na GitHubie.
+- backup.py: dzienna lokalna kopia SQLite obu baz, quick_check, 7 ukończonych kopii, status w panelu, niezależny wątek sprawdzający co 5 minut. Bazy spójne indywidualnie, nie atomowa para. Ten sam wolumen — brak odporności na utratę dysku i brak kopii offsite. Odtwarzanie ręczne po zatrzymaniu usługi.
+- Lokalnie 29/29 unittest i 4/4 prób HTTP (w tym poprawny ZIP), cztery zmienione/nowe pliki mają identyczne SHA z GitHubem. Nadal brak smoke testu Docker/OKX/NBP na VM i danych z rzeczywistego rynku. Tryb paper krypto domyślnie wyłączony, real trading niedostępny.
+- Następne: dane akcji i ETF, kalendarze sesji, rozszerzenie uniwersum, intraday i walk-forward; test instalacji na Proxmoxie oraz kopia poza wolumenem. Nie wdrażać produkcyjnie.
