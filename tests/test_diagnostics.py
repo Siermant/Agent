@@ -37,7 +37,7 @@ class DiagnosticsTests(unittest.TestCase):
         self.store.fail(self.now,'SECRET_TEST_NOT_EXPORTED')
         state={'version':'test','mode':'monitor-only','paper':{'enabled':False,'state':'disabled'},'secret':'SECRET_TEST_NOT_EXPORTED'}
         with ZipFile(BytesIO(report(self.ledger,self.store,state,self.now))) as z:
-            self.assertEqual(set(z.namelist()),{'status.json','portfolios.json','decisions.json'})
+            self.assertEqual(set(z.namelist()),{'status.json','portfolios.json','decisions.json','executions.json'})
             self.assertNotIn(b'SECRET_TEST_NOT_EXPORTED',b''.join(z.read(n) for n in z.namelist()))
             self.assertEqual(len(json.loads(z.read('portfolios.json'))),15)
     def test_backup_restore_and_retention(self):
