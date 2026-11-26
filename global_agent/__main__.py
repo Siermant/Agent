@@ -11,13 +11,14 @@ import signal
 import threading
 
 from .ledger import Ledger
-from .diagnostics import statistics, report
+from .diagnostics import statistics, report, decision_counts
+from .remote_diag import GitHubSink, Outbox, run_cycle
 from .backup import daily_backup
 from .paper_live import PaperRunner
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.7.0-dev"
+VERSION = "0.8.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
@@ -52,6 +53,23 @@ def backup_loop(data, stop, runtime):
         stop.wait(300)
 
 
+def remote_loop(data, ledger, store, stop, runtime, token_path):
+    delay = 60
+    while not stop.is_set():
+        try:
+            token = Path(token_path).read_text(encoding="utf-8").strip()
+            sink = GitHubSink(token)
+            run_cycle(Outbox(data / "diagnostic-outbox"), sink,
+                      view(ledger, store, runtime), decision_counts(ledger))
+            runtime["remote"] = {"state": "ok", "checked": now_utc().isoformat()}
+            delay = 60
+        except Exception as exc:
+            LOG.warning("Remote diagnostic cycle failed: %s", type(exc).__name__)
+            runtime["remote"] = {"state": "pending_or_blocked", "checked": now_utc().isoformat()}
+            delay = min(delay * 2, 900)
+        stop.wait(delay)
+
+
 def view(ledger, store, runtime=None):
     paper = (runtime or {}).get("paper", {"enabled": False, "state": "disabled"})
     now = now_utc()
@@ -60,7 +78,8 @@ def view(ledger, store, runtime=None):
     return {"version": VERSION, "mode": "crypto-paper" if paper["enabled"] else "monitor-only", "real_trading": False,
             "strategies_running": paper_ok, "paper": paper, "time": now.isoformat(),
             "market": market, "accounts": ledger.status(), "statistics": statistics(ledger, now),
-            "backup": (runtime or {}).get("backup", {"state": "waiting"})}
+            "backup": (runtime or {}).get("backup", {"state": "waiting"}),
+            "remote": (runtime or {}).get("remote", {"state": "disabled"})}
 
 
 def render(state):
@@ -81,6 +100,7 @@ def render(state):
     stats_rows = "".join(stat_row(x) for x in stats)
     backup = state.get("backup", {})
     backup_label = {"ok":"Wykonana", "failed":"Błąd", "waiting":"Oczekiwanie"}.get(backup.get("state"), "Nieznany")
+    remote_label = {"ok":"Cykl OK", "pending_or_blocked":"Oczekuje lub zablokowano", "waiting":"Oczekiwanie", "disabled":"Wyłączona"}.get(state.get("remote", {}).get("state"), "Nieznany")
     paper = state["paper"]
     mode = "Symulacja BTC/ETH (raz na dobę) — " + paper["state"] if paper["enabled"] else "Tryb monitorowania"
     if paper["enabled"] and not state["strategies_running"]:
@@ -104,6 +124,7 @@ a{color:#9ed7ff} .status{font-weight:600}
 <section><h2>Porównanie wariantów — krypto</h2><p>Zwrot od startu, bieżące obsunięcie od szczytu i prowizje. Ostatnie wyceny mogą być nieaktualne. Benchmark ma inną ekspozycję, brak podatków.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Zwrot</th><th>Obsunięcie</th><th>Prowizje PLN</th><th>Transakcje</th><th>Wycena</th></tr></thead><tbody>""" + stats_rows + """</tbody></table></div></section>
 <section><h2>Diagnostyka</h2><p>Kopia lokalna: """ + escape(backup_label + " " + str(backup.get("day", ""))) + """</p>
+<p>Diagnostyka zdalna: """ + escape(remote_label) + """</p>
 <p><a href="/raport.zip">Pobierz raport.zip</a> (wyłącznie dane symulacyjne i status, bez surowych logów i baz).</p></section>
 <p>Wersja """ + escape(state["version"]) + """ · <a href="/api/status">JSON</a> · odświeżanie co 30 s</p></body></html>"""
 
@@ -174,6 +195,12 @@ def main():
     backup_worker = threading.Thread(target=backup_loop, args=(data, stop, runtime), daemon=True)
     worker.start()
     backup_worker.start()
+    token_path = os.getenv("GTA_DIAG_TOKEN_FILE")
+    remote_worker = None
+    if token_path:
+        runtime["remote"] = {"state": "waiting"}
+        remote_worker = threading.Thread(target=remote_loop, args=(data, ledger, store, stop, runtime, token_path), daemon=True)
+        remote_worker.start()
     try:
         server.serve_forever()
     finally:
@@ -181,6 +208,8 @@ def main():
         server.server_close()
         worker.join(timeout=15)
         backup_worker.join(timeout=5)
+        if remote_worker is not None:
+            remote_worker.join(timeout=5)
 
 if __name__ == "__main__":
     main()
