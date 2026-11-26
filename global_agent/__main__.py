@@ -11,15 +11,17 @@ import signal
 import threading
 
 from .ledger import Ledger
+from .service_guard import service_lock
 from .preflight import resources
-from .diagnostics import statistics, report, decision_counts
+from .diagnostics import statistics, report, decision_counts, recent_executions
 from .remote_diag import GitHubSink, Outbox, run_cycle
 from .backup import daily_backup
+from .maintenance import compact_snapshots
 from .paper_live import PaperRunner
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.9.0-dev"
+VERSION = "0.10.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
@@ -43,11 +45,15 @@ def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
         stop.wait(interval)
 
 
-def backup_loop(data, stop, runtime):
+def backup_loop(data, stop, runtime, ledger=None):
+    last_compacted = None
     while not stop.is_set():
         try:
             path = daily_backup(data)
             runtime["backup"] = {"state": "ok", "day": path.name}
+            if ledger is not None and last_compacted != path.name:
+                compact_snapshots(ledger, now_utc())
+                last_compacted = path.name
         except Exception as exc:
             LOG.warning("Backup failed: %s", type(exc).__name__)
             runtime["backup"] = {"state": "failed", "reason": type(exc).__name__}
@@ -80,6 +86,7 @@ def view(ledger, store, runtime=None):
             "strategies_running": paper_ok, "paper": paper, "time": now.isoformat(),
             "market": market, "accounts": ledger.status(), "statistics": statistics(ledger, now),
             "resources": resources(ledger.path.parent),
+            "recent_executions": recent_executions(ledger),
             "backup": (runtime or {}).get("backup", {"state": "waiting"}),
             "remote": (runtime or {}).get("remote", {"state": "disabled"})}
 
@@ -100,6 +107,7 @@ def render(state):
         fresh = x["fresh"] and market["healthy"] and state["strategies_running"]
         return row([x["account"], percent(x["return_pct"]), percent(x["current_drawdown_pct"]), f"{float(x['fees_pln']):.2f}", x["fills"], "Aktualna" if fresh else ("Brak wyceny" if x["equity_pln"] is None else "Ostatnia / nieaktualna")])
     stats_rows = "".join(stat_row(x) for x in stats)
+    trades = "".join(row([x["at"], x["account"], x["symbol"], "Kupno" if x["side"]=="buy" else "Sprzedaż", x["quantity"], x["price_pln"], x["fee_pln"]]) for x in state.get("recent_executions", [])[:50])
     backup = state.get("backup", {})
     backup_label = {"ok":"Wykonana", "failed":"Błąd", "waiting":"Oczekiwanie"}.get(backup.get("state"), "Nieznany")
     remote_label = {"ok":"Cykl OK", "pending_or_blocked":"Oczekuje lub zablokowano", "waiting":"Oczekiwanie", "disabled":"Wyłączona"}.get(state.get("remote", {}).get("state"), "Nieznany")
@@ -129,6 +137,7 @@ a{color:#9ed7ff} .status{font-weight:600}
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Kapitał startowy</th><th>Gotówka</th><th>Ostatnia wycena</th><th>Czas UTC</th><th>Transakcje</th></tr></thead><tbody>""" + portfolios + """</tbody></table></div></section>
 <section><h2>Porównanie wariantów — krypto</h2><p>Zwrot od startu, bieżące obsunięcie od szczytu i prowizje. Ostatnie wyceny mogą być nieaktualne. Benchmark ma inną ekspozycję, brak podatków.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Zwrot</th><th>Obsunięcie</th><th>Prowizje PLN</th><th>Transakcje</th><th>Wycena</th></tr></thead><tbody>""" + stats_rows + """</tbody></table></div></section>
+<section><h2>Ostatnie transakcje symulacyjne</h2><div class="scroll"><table><thead><tr><th>Czas UTC</th><th>Portfel</th><th>Instrument</th><th>Strona</th><th>Ilość</th><th>Cena PLN</th><th>Prowizja PLN</th></tr></thead><tbody>""" + trades + """</tbody></table></div></section>
 <section><h2>Diagnostyka</h2><p>Kopia lokalna: """ + escape(backup_label + " " + str(backup.get("day", ""))) + """</p>
 <p>""" + escape(resource_label) + """</p>
 <p>Diagnostyka zdalna: """ + escape(remote_label) + """</p>
@@ -185,6 +194,11 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     data = Path(os.getenv("GTA_DATA", "./data"))
     data.mkdir(parents=True, exist_ok=True)
+    with service_lock(data):
+        serve(data)
+
+
+def serve(data):
     ledger = Ledger(data / "ledger.db")
     store = QuoteStore(data / "market.db")
     enabled = os.getenv("GTA_PAPER_CRYPTO", "0") == "1"
@@ -199,7 +213,7 @@ def main():
         threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
-    backup_worker = threading.Thread(target=backup_loop, args=(data, stop, runtime), daemon=True)
+    backup_worker = threading.Thread(target=backup_loop, args=(data, stop, runtime, ledger), daemon=True)
     worker.start()
     backup_worker.start()
     token_path = os.getenv("GTA_DIAG_TOKEN_FILE")
