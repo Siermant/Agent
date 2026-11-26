@@ -8,6 +8,7 @@ services:
       - agent-data:/data
     environment:
       GTA_POLL_SECONDS: "30"
+      GTA_PAPER_CRYPTO: "${GTA_PAPER_CRYPTO:-0}"
     read_only: true
     tmpfs:
       - /tmp
