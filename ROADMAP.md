@@ -51,3 +51,8 @@ Rozwinąć i uruchomić silnik symulacji. Nie wdrażać automatycznie na main an
 - Panel dostępny przez VPN, uwierzytelnianie, monitoring heartbeat z niezależnego miejsca, alerty awarii, klucze poza repozytorium, bez uprawnień do wypłat. IB Gateway: uwzględnić ręczne uwierzytelnianie i wygaśnięcie sesji.
 - Żadnego automatycznego wdrożenia gałęzi develop; aktualizacje z zatwierdzonych wydań, test przed przełączeniem i procedura rollback uwzględniająca bazę danych.
 - Nadal tylko symulacja; rzeczywiste transakcje wymagają odrębnej decyzji i walidacji. VPS i VM nie zostały jeszcze utworzone.
+
+## Decyzja wdrożeniowa 2026-11-26
+- Pierwsza wersja testowa wyłącznie na Proxmox; zakup VPS odłożony do późniejszej decyzji. Zachować przenośność Docker Compose i docelową architekturę hybrydową.
+- Przerwa w dostępie do internetu: wstrzymać symulowane wykonania bez świeżych danych, zapisać awarię, po powrocie połączenia zweryfikować dane i stan portfeli; nie symulować realizacji po nieznanych cenach.
+- Parametry VM: 2 vCPU host, 3 GB RAM, 40 GB SSD, Ubuntu Server 24.04 LTS, po sprawdzeniu zasobów hosta. Panel WWW po polsku przez LAN/VPN.
