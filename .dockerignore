@@ -1,0 +1,4 @@
+**
+!Dockerfile
+!global_agent/
+!global_agent/*.py
