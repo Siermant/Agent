@@ -112,7 +112,8 @@ def snapshots(state, decisions, now):
     hourly = {'generated_utc':now.isoformat(), 'real_trading':False,'market_healthy':status['market_healthy'],'portfolios':rows}
     daily = {'generated_utc':now.isoformat(),'real_trading':False,'portfolios':rows,
              'history':[{'account':r['account'],'history':[{k:h[k] for k in ('day','at','equity')} for h in r['history']]} for r in state['statistics']],
-             'decisions':[{k:r[k] for k in ('account','result','count')} for r in decisions]}
+             'decisions':[{k:r[k] for k in ('account','result','count')} for r in decisions],
+             'recent_executions':[{k:r[k] for k in ('account','symbol','side','quantity','price_pln','fee_pln','at')} for r in state.get('recent_executions',[])[:200]]}
     # Include health changes in the slot to transmit transitions without waiting 15 min.
     health = (status['market_healthy'],status['paper_state'],status['backup_state'])
     return {'status':(str(int(now.timestamp())//900)+':'+str(health),status),
