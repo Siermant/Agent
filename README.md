@@ -1,6 +1,6 @@
 # Global Trading Agent
 
-**Wersja rozwojowa 0.8.0-dev — monitoring i opcjonalny paper trading BTC/ETH.** Nie wykonuje rzeczywistych zleceń ani nie posiada integracji z prywatnym API brokera. Nie uruchamiać starego bitcoin_agent.py. Stary kod i logi pozostają archiwalne; nie należy ich kopiować do obrazu ani używać ujawnionych kluczy.
+**Wersja rozwojowa 0.10.0-dev — monitoring i opcjonalny paper trading BTC/ETH.** Nie wykonuje rzeczywistych zleceń ani nie posiada integracji z prywatnym API brokera. Nie uruchamiać starego bitcoin_agent.py. Stary kod i logi pozostają archiwalne; nie należy ich kopiować do obrazu ani używać ujawnionych kluczy.
 
 ## Funkcje
 - 15 niezależnych rachunków wirtualnych, 491 300 PLN nominalnie.
@@ -75,3 +75,10 @@ python3 ops/stage_release.py --approved-sha PELNY_ZATWIERDZONY_SHA --output "$HO
 ```
 Katalog manifestu ma być poza repozytorium, plik nie może wcześniej istnieć. Narzędzie pobiera wskazany commit, wybiera tylko katalogi programu, testów, ops i pliki budowy, buduje obraz z tagiem kandydata i zapisuje jego niezmienny lokalny ID. Testy jednostkowe i próba HTTP działają w odizolowanych kontenerach bez sieci, poświadczeń, portów publicznych i właściwego wolumenu danych. Nie zmienia działającej usługi Compose. Manifest powstaje dopiero po poprawnym przejściu testów. Nie jest podpisem kryptograficznym ani zgodą na instalację. Obraz bazowy nadal nie jest przypięty do digestu; identyczny commit nie gwarantuje odtwarzalnej budowy.
 Przed aktywacją: potwierdzić wynik testu rzeczywistych źródeł danych na VM, zanotować ID starego obrazu i konfigurację Compose, zatrzymać wykonawcę, wykonać zweryfikowaną kopię wolumenu poza nim oraz sprawdzić odtwarzanie. Do uruchomienia nowej wersji użyć osobnego sklonowanego wolumenu; zachować poprzedni obraz i oryginalny wolumen. Nie uruchamiać dwóch wykonawców jednocześnie. W razie niepowodzenia zatrzymać nową instancję i wrócić do poprzedniego obrazu oraz jego wolumenu; zachować nowy wolumen do uzgodnienia symulowanych decyzji, nie wykonywać automatycznego nadpisania danych. Powyższa procedura aktywacji i rollbacku jest jeszcze ręczna i niezweryfikowana na Dockerze. Skrypt kwalifikacji nie wykonuje kopii działającego wolumenu, nie przełącza wersji i nie stanowi aktualizatora produkcyjnego.
+
+## Kandydat v0.10 — niezawodność i odbiór
+- Blokada flock całego procesu dla jednego lokalnego katalogu danych. Nie zapewnia blokady rozproszonej pomiędzy różnymi VM lub wolumenami.
+- Po dziennej kopii baza wycen zachowuje wszystkie punkty z ostatnich 7 dat UTC i ostatni zapis na dzień dla starszych dat. Nie usuwa wykonań ani decyzji; zachowuje szczyt i podstawy limitów ryzyka. Zwolnione strony SQLite mogą być ponownie użyte, plik nie musi fizycznie maleć. Starszej historii intraday nie należy traktować jako kompletnej.
+- Panel pokazuje do 50 ostatnich wykonań; API status, raport.zip (executions.json) i prywatny daily.json do 200 ostatnich symulowanych wykonań znanych symboli, bez identyfikatorów zleceń. Pełna księga pozostaje lokalnie. Dla diagnostyki zdalnej nadal wymagana prywatność repozytorium i zgoda na wysyłkę danych.
+- Instrukcja startu: ops/FIRST_BOOT.md. Najpierw monitoring, następnie preflight i dopiero po udanym teście rzeczywistych źródeł paper trading. Nie uruchamiać starego agenta. Wcześniej ujawnione poświadczenia należy unieważnić.
+- Testy: python3 -m unittest discover -s tests -v; obejmują także rzeczywiste HTTP na loopback bez internetu. Docker, OKX/NBP i zdalna diagnostyka wymagają weryfikacji na VM. Automatyczna aktywacja aktualizacji i rollback niegotowe.
