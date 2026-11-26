@@ -1,0 +1,11 @@
+services:
+  agent:
+    environment:
+      GTA_DIAG_TOKEN_FILE: /run/secrets/gta_diagnostics_token
+    volumes:
+      - type: bind
+        source: "${GTA_DIAG_TOKEN_PATH:?Set absolute path to diagnostic token outside repository}"
+        target: /run/secrets/gta_diagnostics_token
+        read_only: true
+        bind:
+          create_host_path: false
