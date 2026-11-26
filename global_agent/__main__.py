@@ -11,6 +11,7 @@ import signal
 import threading
 
 from .ledger import Ledger
+from .preflight import resources
 from .diagnostics import statistics, report, decision_counts
 from .remote_diag import GitHubSink, Outbox, run_cycle
 from .backup import daily_backup
@@ -18,7 +19,7 @@ from .paper_live import PaperRunner
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.8.0-dev"
+VERSION = "0.9.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
@@ -78,6 +79,7 @@ def view(ledger, store, runtime=None):
     return {"version": VERSION, "mode": "crypto-paper" if paper["enabled"] else "monitor-only", "real_trading": False,
             "strategies_running": paper_ok, "paper": paper, "time": now.isoformat(),
             "market": market, "accounts": ledger.status(), "statistics": statistics(ledger, now),
+            "resources": resources(ledger.path.parent),
             "backup": (runtime or {}).get("backup", {"state": "waiting"}),
             "remote": (runtime or {}).get("remote", {"state": "disabled"})}
 
@@ -101,6 +103,10 @@ def render(state):
     backup = state.get("backup", {})
     backup_label = {"ok":"Wykonana", "failed":"Błąd", "waiting":"Oczekiwanie"}.get(backup.get("state"), "Nieznany")
     remote_label = {"ok":"Cykl OK", "pending_or_blocked":"Oczekuje lub zablokowano", "waiting":"Oczekiwanie", "disabled":"Wyłączona"}.get(state.get("remote", {}).get("state"), "Nieznany")
+    res = state.get("resources", {})
+    def mib(value):
+        return "—" if value is None else f"{value / 1048576:.1f} MiB"
+    resource_label = "RAM kontenera: " + mib(res.get("memory_bytes")) + " / " + mib(res.get("memory_limit_bytes")) + " | Wolne miejsce na dysku: " + mib(res.get("disk_free_bytes"))
     paper = state["paper"]
     mode = "Symulacja BTC/ETH (raz na dobę) — " + paper["state"] if paper["enabled"] else "Tryb monitorowania"
     if paper["enabled"] and not state["strategies_running"]:
@@ -124,6 +130,7 @@ a{color:#9ed7ff} .status{font-weight:600}
 <section><h2>Porównanie wariantów — krypto</h2><p>Zwrot od startu, bieżące obsunięcie od szczytu i prowizje. Ostatnie wyceny mogą być nieaktualne. Benchmark ma inną ekspozycję, brak podatków.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Zwrot</th><th>Obsunięcie</th><th>Prowizje PLN</th><th>Transakcje</th><th>Wycena</th></tr></thead><tbody>""" + stats_rows + """</tbody></table></div></section>
 <section><h2>Diagnostyka</h2><p>Kopia lokalna: """ + escape(backup_label + " " + str(backup.get("day", ""))) + """</p>
+<p>""" + escape(resource_label) + """</p>
 <p>Diagnostyka zdalna: """ + escape(remote_label) + """</p>
 <p><a href="/raport.zip">Pobierz raport.zip</a> (wyłącznie dane symulacyjne i status, bez surowych logów i baz).</p></section>
 <p>Wersja """ + escape(state["version"]) + """ · <a href="/api/status">JSON</a> · odświeżanie co 30 s</p></body></html>"""
