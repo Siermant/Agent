@@ -11,11 +11,13 @@ import signal
 import threading
 
 from .ledger import Ledger
+from .diagnostics import statistics, report
+from .backup import daily_backup
 from .paper_live import PaperRunner
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.6.0-dev"
+VERSION = "0.7.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
@@ -39,11 +41,26 @@ def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
         stop.wait(interval)
 
 
+def backup_loop(data, stop, runtime):
+    while not stop.is_set():
+        try:
+            path = daily_backup(data)
+            runtime["backup"] = {"state": "ok", "day": path.name}
+        except Exception as exc:
+            LOG.warning("Backup failed: %s", type(exc).__name__)
+            runtime["backup"] = {"state": "failed", "reason": type(exc).__name__}
+        stop.wait(300)
+
+
 def view(ledger, store, runtime=None):
     paper = (runtime or {}).get("paper", {"enabled": False, "state": "disabled"})
+    now = now_utc()
+    market = store.status(now)
+    paper_ok = bool(paper["enabled"] and paper["state"] == "ok" and paper.get("checked") and market["healthy"] and 0 <= (now-datetime.fromisoformat(paper["checked"])).total_seconds() <= 90)
     return {"version": VERSION, "mode": "crypto-paper" if paper["enabled"] else "monitor-only", "real_trading": False,
-            "strategies_running": paper["enabled"] and paper["state"] == "ok", "paper": paper, "time": now_utc().isoformat(),
-            "market": store.status(now_utc()), "accounts": ledger.status()}
+            "strategies_running": paper_ok, "paper": paper, "time": now.isoformat(),
+            "market": market, "accounts": ledger.status(), "statistics": statistics(ledger, now),
+            "backup": (runtime or {}).get("backup", {"state": "waiting"})}
 
 
 def render(state):
@@ -55,8 +72,19 @@ def render(state):
     accounts = state["accounts"]
     quotes = "".join(row([q["symbol"], q["bid"], q["ask"], q["last"], q["ts"], "Aktualne" if q["fresh"] else "Nieaktualne"]) for q in market["quotes"])
     portfolios = "".join(row([p["account"], p["initial_pln"], p["cash_pln"], p["last_equity_pln"], p["valued_at"], p["fills"]]) for p in accounts)
+    def percent(value):
+        return None if value is None else f"{float(value):+.2f}%"
+    stats = [x for x in state.get("statistics", []) if x["account"].endswith(":crypto")]
+    def stat_row(x):
+        fresh = x["fresh"] and market["healthy"] and state["strategies_running"]
+        return row([x["account"], percent(x["return_pct"]), percent(x["current_drawdown_pct"]), f"{float(x['fees_pln']):.2f}", x["fills"], "Aktualna" if fresh else ("Brak wyceny" if x["equity_pln"] is None else "Ostatnia / nieaktualna")])
+    stats_rows = "".join(stat_row(x) for x in stats)
+    backup = state.get("backup", {})
+    backup_label = {"ok":"Wykonana", "failed":"Błąd", "waiting":"Oczekiwanie"}.get(backup.get("state"), "Nieznany")
     paper = state["paper"]
     mode = "Symulacja BTC/ETH (raz na dobę) — " + paper["state"] if paper["enabled"] else "Tryb monitorowania"
+    if paper["enabled"] and not state["strategies_running"]:
+        mode += " (wstrzymana lub niepotwierdzona aktualność)"
     health = "Dane aktualne" if market["healthy"] else "Brak aktualnych danych — handel zablokowany"
     return """<!doctype html><html lang="pl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="30">
@@ -73,6 +101,10 @@ a{color:#9ed7ff} .status{font-weight:600}
 <div class="scroll"><table><thead><tr><th>Instrument</th><th>Bid</th><th>Ask</th><th>Ostatnia cena</th><th>Czas UTC</th><th>Stan</th></tr></thead><tbody>""" + quotes + """</tbody></table></div></section>
 <section><h2>15 portfeli wirtualnych — PLN</h2><p>A: zachowawczy · B: zrównoważony · C: aktywny · D: adaptacyjny · E: benchmark. Akcje i IKE pozostają nieaktywne. Kurs PLN jest referencyjny; wyceny mają znaczniki czasu.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Kapitał startowy</th><th>Gotówka</th><th>Ostatnia wycena</th><th>Czas UTC</th><th>Transakcje</th></tr></thead><tbody>""" + portfolios + """</tbody></table></div></section>
+<section><h2>Porównanie wariantów — krypto</h2><p>Zwrot od startu, bieżące obsunięcie od szczytu i prowizje. Ostatnie wyceny mogą być nieaktualne. Benchmark ma inną ekspozycję, brak podatków.</p>
+<div class="scroll"><table><thead><tr><th>Portfel</th><th>Zwrot</th><th>Obsunięcie</th><th>Prowizje PLN</th><th>Transakcje</th><th>Wycena</th></tr></thead><tbody>""" + stats_rows + """</tbody></table></div></section>
+<section><h2>Diagnostyka</h2><p>Kopia lokalna: """ + escape(backup_label + " " + str(backup.get("day", ""))) + """</p>
+<p><a href="/raport.zip">Pobierz raport.zip</a> (wyłącznie dane symulacyjne i status, bez surowych logów i baz).</p></section>
 <p>Wersja """ + escape(state["version"]) + """ · <a href="/api/status">JSON</a> · odświeżanie co 30 s</p></body></html>"""
 
 
@@ -87,11 +119,13 @@ def handler(ledger, store, runtime=None):
                     self.send_error(503)
                     return
                 self.respond(b"ok", "text/plain; charset=utf-8")
-            elif self.path in ("/", "/api/status"):
+            elif self.path in ("/", "/api/status", "/raport.zip"):
                 try:
                     state = view(ledger, store, runtime)
                     if self.path == "/":
                         body, kind = render(state).encode("utf-8"), "text/html; charset=utf-8"
+                    elif self.path == "/raport.zip":
+                        body, kind = report(ledger, store, state), "application/zip"
                     else:
                         body, kind = json.dumps(state, default=str).encode(), "application/json"
                 except Exception:
@@ -107,6 +141,8 @@ def handler(ledger, store, runtime=None):
             self.send_header("Content-Type", kind)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            if kind == "application/zip":
+                self.send_header("Content-Disposition", 'attachment; filename="raport.zip"')
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
             self.end_headers()
@@ -135,13 +171,16 @@ def main():
         threading.Thread(target=server.shutdown, daemon=True).start()
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
+    backup_worker = threading.Thread(target=backup_loop, args=(data, stop, runtime), daemon=True)
     worker.start()
+    backup_worker.start()
     try:
         server.serve_forever()
     finally:
         stop.set()
         server.server_close()
         worker.join(timeout=15)
+        backup_worker.join(timeout=5)
 
 if __name__ == "__main__":
     main()
