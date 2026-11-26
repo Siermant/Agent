@@ -1,4 +1,4 @@
-"""Read-only monitor service. No trading loop or broker credentials."""
+"""Monitor and optional crypto paper simulation; no broker credentials."""
 from contextlib import closing
 from datetime import datetime, timezone
 from html import escape
@@ -11,25 +11,38 @@ import signal
 import threading
 
 from .ledger import Ledger
+from .paper_live import PaperRunner
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.4.0-dev"
+VERSION = "0.6.0-dev"
 
 
-def poll(store, stop, interval=30, source=fetch):
+def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
     while not stop.is_set():
         try:
             store.record(source(), now_utc())
         except Exception as exc:
             LOG.warning("Market unavailable: %s", type(exc).__name__)
             store.fail(now_utc(), type(exc).__name__)
+            if runtime is not None:
+                runtime["paper"] = {"enabled": runner is not None, "state": "feed_unavailable"}
+        else:
+            if runner is not None:
+                try:
+                    state = runner.tick()
+                except Exception as exc:
+                    LOG.warning("Paper cycle blocked: %s", type(exc).__name__)
+                    state = "blocked:" + type(exc).__name__
+                if runtime is not None:
+                    runtime["paper"] = {"enabled": True, "state": state, "checked": now_utc().isoformat()}
         stop.wait(interval)
 
 
-def view(ledger, store):
-    return {"version": VERSION, "mode": "monitor-only", "real_trading": False,
-            "strategies_running": False, "time": now_utc().isoformat(),
+def view(ledger, store, runtime=None):
+    paper = (runtime or {}).get("paper", {"enabled": False, "state": "disabled"})
+    return {"version": VERSION, "mode": "crypto-paper" if paper["enabled"] else "monitor-only", "real_trading": False,
+            "strategies_running": paper["enabled"] and paper["state"] == "ok", "paper": paper, "time": now_utc().isoformat(),
             "market": store.status(now_utc()), "accounts": ledger.status()}
 
 
@@ -42,6 +55,8 @@ def render(state):
     accounts = state["accounts"]
     quotes = "".join(row([q["symbol"], q["bid"], q["ask"], q["last"], q["ts"], "Aktualne" if q["fresh"] else "Nieaktualne"]) for q in market["quotes"])
     portfolios = "".join(row([p["account"], p["initial_pln"], p["cash_pln"], p["last_equity_pln"], p["valued_at"], p["fills"]]) for p in accounts)
+    paper = state["paper"]
+    mode = "Symulacja BTC/ETH (raz na dobę) — " + paper["state"] if paper["enabled"] else "Tryb monitorowania"
     health = "Dane aktualne" if market["healthy"] else "Brak aktualnych danych — handel zablokowany"
     return """<!doctype html><html lang="pl"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="30">
@@ -52,16 +67,16 @@ small,p{color:#b8c8da}table{border-collapse:collapse;width:100%;font-variant-num
 th,td{text-align:left;padding:10px;border-bottom:1px solid #34435a;white-space:nowrap} .scroll{overflow:auto}
 a{color:#9ed7ff} .status{font-weight:600}
 </style></head><body><h1>Global Trading Agent</h1>
-<p>Tryb monitorowania • bez handlu rzeczywistego i bez automatycznych transakcji symulacyjnych</p>
+<p>""" + escape(mode) + """ • bez handlu rzeczywistego</p>
 <section><h2>Rynek kryptowalut — EUR</h2><p class="status">""" + escape(health) + """</p>
 <p>Źródło OKX EEA | ostatnia kontrola: """ + escape(str(market["checked"] or "—")) + """ UTC</p>
 <div class="scroll"><table><thead><tr><th>Instrument</th><th>Bid</th><th>Ask</th><th>Ostatnia cena</th><th>Czas UTC</th><th>Stan</th></tr></thead><tbody>""" + quotes + """</tbody></table></div></section>
-<section><h2>15 portfeli wirtualnych — PLN</h2><p>A: zachowawczy · B: zrównoważony · C: aktywny · D: adaptacyjny · E: benchmark. Wycena nie jest dostępna przed uruchomieniem strategii.</p>
+<section><h2>15 portfeli wirtualnych — PLN</h2><p>A: zachowawczy · B: zrównoważony · C: aktywny · D: adaptacyjny · E: benchmark. Akcje i IKE pozostają nieaktywne. Kurs PLN jest referencyjny; wyceny mają znaczniki czasu.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Kapitał startowy</th><th>Gotówka</th><th>Ostatnia wycena</th><th>Czas UTC</th><th>Transakcje</th></tr></thead><tbody>""" + portfolios + """</tbody></table></div></section>
 <p>Wersja """ + escape(state["version"]) + """ · <a href="/api/status">JSON</a> · odświeżanie co 30 s</p></body></html>"""
 
 
-def handler(ledger, store):
+def handler(ledger, store, runtime=None):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/healthz":
@@ -74,7 +89,7 @@ def handler(ledger, store):
                 self.respond(b"ok", "text/plain; charset=utf-8")
             elif self.path in ("/", "/api/status"):
                 try:
-                    state = view(ledger, store)
+                    state = view(ledger, store, runtime)
                     if self.path == "/":
                         body, kind = render(state).encode("utf-8"), "text/html; charset=utf-8"
                     else:
@@ -108,10 +123,13 @@ def main():
     data.mkdir(parents=True, exist_ok=True)
     ledger = Ledger(data / "ledger.db")
     store = QuoteStore(data / "market.db")
+    enabled = os.getenv("GTA_PAPER_CRYPTO", "0") == "1"
+    runner = PaperRunner(ledger, store) if enabled else None
+    runtime = {"paper": {"enabled": enabled, "state": "waiting" if enabled else "disabled"}}
     stop = threading.Event()
     interval = max(15, int(os.getenv("GTA_POLL_SECONDS", "30")))
-    server = ThreadingHTTPServer((os.getenv("GTA_BIND", "127.0.0.1"), 8080), handler(ledger, store))
-    worker = threading.Thread(target=poll, args=(store, stop, interval), daemon=True)
+    server = ThreadingHTTPServer((os.getenv("GTA_BIND", "127.0.0.1"), 8080), handler(ledger, store, runtime))
+    worker = threading.Thread(target=poll, args=(store, stop, interval), kwargs={"runner": runner, "runtime": runtime}, daemon=True)
     def shutdown(signum, frame):
         stop.set()
         threading.Thread(target=server.shutdown, daemon=True).start()
