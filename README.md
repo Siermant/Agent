@@ -1,6 +1,6 @@
 # Global Trading Agent
 
-**Wersja rozwojowa 0.4.0-dev — wyłącznie monitoring.** Nie wykonuje zleceń, nie posiada integracji z prywatnym API brokera ani automatycznej strategii. Nie uruchamiać starego bitcoin_agent.py. Stary kod i logi pozostają archiwalne; nie należy ich kopiować do obrazu ani używać ujawnionych kluczy.
+**Wersja rozwojowa 0.6.0-dev — monitoring i opcjonalny paper trading BTC/ETH.** Nie wykonuje rzeczywistych zleceń ani nie posiada integracji z prywatnym API brokera. Nie uruchamiać starego bitcoin_agent.py. Stary kod i logi pozostają archiwalne; nie należy ich kopiować do obrazu ani używać ujawnionych kluczy.
 
 ## Funkcje
 - 15 niezależnych rachunków wirtualnych, 491 300 PLN nominalnie.
@@ -37,7 +37,7 @@ Dane pozostają w nazwanym wolumenie agent-data; nie używać docker compose dow
 FX z odrębnym znacznikiem świeżości, dane akcji i ETF, kalendarz sesji, identyfikatory instrumentów, backtest, benchmark i strategie, pełny moduł ryzyka, podatki, uwierzytelnianie, kopie zapasowe. Zobacz ROADMAP.md. Zakup VPS i rzeczywisty handel pozostają odłożone.
 
 ## Backtesting v0.5 (osobny tryb badawczy)
-Panel monitoringu pozostaje v0.4; ten moduł nie uruchamia automatycznych strategii live.
+Backtest jest osobnym trybem badawczym; nie modyfikuje portfeli symulacji bieżącej.
 Przykład pobrania historii w istniejącym kontenerze (po weryfikacji połączenia i warunków API):
 ```sh
 docker compose exec agent python -m global_agent.history --start 2025-01-01 --end 2025-12-31 --symbols BTC-EUR ETH-EUR --output /data/crypto_2025.csv
@@ -45,3 +45,12 @@ docker compose exec agent python -m global_agent.backtest /data/crypto_2025.csv 
 ```
 Źródła: OKX EEA history-candles, 1Dutc, tylko confirm=1; NBP tabela A EUR, zawsze kurs opublikowany przed dniem świecy. Kurs referencyjny nie jest ceną rzeczywistej wymiany waluty. Brakujące dni powodują błąd, bez interpolacji. Zakres 21–730 pełnych dni; dostępność par i historii zależy od API. Nie uruchamiać wielu pobrań równocześnie.
 Alternatywnie dostarczyć CSV date,symbol,open_pln,close_pln, z jednolitym, sprawdzonym kalendarzem sesji i cenami w PLN. Pierwsze 20 sesji stanowi rozgrzewkę, sygnał z poprzednich zamknięć, wykonanie na otwarciu następnej sesji. Każde uruchomienie testuje 5 niezależnych wariantów dla wybranego rodzaju rachunku; nie modyfikuje bazy monitoringu. Wyniki JSON na stdout. Koszty domyślne to założenia: prowizja 0,25%, pełny spread 0,2%, poślizg 0,1% na stronę; parametry konfigurowalne. To nie aktualny cennik giełdy. Akcje domyślnie w całych sztukach, krypto z założonym krokiem 0,000001. D jest regułowy, nie AI. C nie jest jeszcze pełnym gridem. Brak podatków, dywidend, corporate actions, intraday, danych o płynności i rzeczywistych kalendarzy akcji. Testować małe uniwersum; aktywne portfele i benchmark mają różne ekspozycje. Nie interpretować wyniku jako prognozy.
+
+## Paper trading v0.6 — pierwsza automatyczna symulacja
+Po sprawdzeniu aktualnych notowań, historii i FX na VM, uruchomić:
+```sh
+GTA_PAPER_CRYPTO=1 docker compose up -d --build
+docker compose logs --tail=50 agent
+```
+Wyłączenie: `GTA_PAPER_CRYPTO=0 docker compose up -d`. Bez parametru domyślnie monitoring; brak realnych zleceń w obu trybach. Zachować ten sam wolumen. Decyzje raz na dobę UTC dla BTC-EUR i ETH-EUR, z 20 zamkniętych świec dziennych, realizacja po aktualnym bid/ask (nie po historycznym otwarciu). Kurs NBP z poprzedniego dnia publikacji, referencyjny dla PLN. Założenia kosztów: 0,25% prowizji, 0,1% poślizgu, krok ilości 0,000001, bez modelu głębokości rynku. Nie są aktualną taryfą OKX ani ceną wykonalną FX. Warianty A–D: pozycje do 5%, budżet zakupu 4,5%; tylko dwa instrumenty, zatem aktywna ekspozycja początkowo około 9%, a benchmark może mieć niemal 100%. Nie porównywać zysku bez uwzględnienia różnic ryzyka. E kupuje BTC jednokrotnie. Pozostałe 10 portfeli (akcje i IKE) nie handluje.
+Brak świeżego kompletu cen, historii lub kursu blokuje cykl; nie odtwarzamy utraconych transakcji po fikcyjnych cenach. Rejestr paper_decisions i deterministyczne ID zleceń zapobiegają powtórzeniu wykonania w tej samej dobie; lokalny flock chroni przed równoległym cyklem na tym samym dysku. Bez automatycznego failover. Nie jest to scalping ani pełny grid, D nie jest jeszcze AI. Brak podatków, zleceń ochronnych i modelu częściowych realizacji. Wersja rozwojowa: najpierw smoke test w środowisku docelowym. Panel przez SSH/VPN, bez publicznego portu.
