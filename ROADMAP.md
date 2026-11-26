@@ -61,3 +61,9 @@ Rozwinąć i uruchomić silnik symulacji. Nie wdrażać automatycznie na main an
 - Samodzielnie realizować zwykłe decyzje techniczne, implementacje, testy, poprawki i dokumentację na develop; nie zatrzymywać prac z prośbą o potwierdzenie każdego kroku.
 - Osobna zgoda użytkownika: rzeczywiste środki lub zlecenia, podłączenie uprawnień transakcyjnych, płatne usługi, istotna zmiana limitów ryzyka, publikacja danych prywatnych, destrukcyjne operacje i wdrożenie produkcyjne.
 - Praca nad kodem odbywa się podczas aktywnych sesji; po wdrożeniu proces agenta będzie niezależnie działać całodobowo.
+
+## Stan implementacji v0.4.0-dev
+- Dodano global_agent/__main__.py: jednowątkowa pętla odczytu OKX co 30 s, panel tylko do odczytu, API status i healthcheck; brak automatycznych strategii i rzeczywistych zleceń.
+- Dockerfile, compose.yaml, .dockerignore, .gitignore, README oraz workflow testów. Kontener bez roota, limit 1 CPU i 768 MB RAM, trwały wolumen; panel tylko loopback VM, dostęp tunelem SSH. Nie kopiujemy starego kodu ani logów do obrazu.
+- Lokalnie 10/10 testów jednostkowych (Python 3.13) na danych syntetycznych oraz 4/4 prób HTTP. Porównano SHA blobów pięciu testowanych plików z GitHubem, identyczne. GitHub Actions skonfigurowano dla Python 3.12, lecz podczas sprawdzenia brak uruchomień. Nie zweryfikowano budowy obrazu ani komunikacji z OKX na żywo (środowisko bez DNS zewnętrznego i Docker). Dokumentacja OKX potwierdza domenę eea.okx.com i publiczny endpoint tickers.
+- Następne prace bez dodatkowej akceptacji: historyczne zamknięte świece, FX i zasady świeżości, silnik backtest, pierwsze strategie i benchmark, testy integracyjne z symulowaną awarią, rozszerzenie danych akcji. Nie włączać transakcji realnych.
