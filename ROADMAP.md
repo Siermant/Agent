@@ -56,3 +56,8 @@ Rozwinąć i uruchomić silnik symulacji. Nie wdrażać automatycznie na main an
 - Pierwsza wersja testowa wyłącznie na Proxmox; zakup VPS odłożony do późniejszej decyzji. Zachować przenośność Docker Compose i docelową architekturę hybrydową.
 - Przerwa w dostępie do internetu: wstrzymać symulowane wykonania bez świeżych danych, zapisać awarię, po powrocie połączenia zweryfikować dane i stan portfeli; nie symulować realizacji po nieznanych cenach.
 - Parametry VM: 2 vCPU host, 3 GB RAM, 40 GB SSD, Ubuntu Server 24.04 LTS, po sprawdzeniu zasobów hosta. Panel WWW po polsku przez LAN/VPN.
+
+## Zasady współpracy (zatwierdzone)
+- Samodzielnie realizować zwykłe decyzje techniczne, implementacje, testy, poprawki i dokumentację na develop; nie zatrzymywać prac z prośbą o potwierdzenie każdego kroku.
+- Osobna zgoda użytkownika: rzeczywiste środki lub zlecenia, podłączenie uprawnień transakcyjnych, płatne usługi, istotna zmiana limitów ryzyka, publikacja danych prywatnych, destrukcyjne operacje i wdrożenie produkcyjne.
+- Praca nad kodem odbywa się podczas aktywnych sesji; po wdrożeniu proces agenta będzie niezależnie działać całodobowo.
