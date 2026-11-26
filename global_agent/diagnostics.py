@@ -27,9 +27,10 @@ def statistics(ledger, now):
             last = db.execute('SELECT at,equity FROM snapshots WHERE account=? ORDER BY at DESC LIMIT 1', (account,)).fetchone()
             fills = list(db.execute('SELECT side,fee,qty,price FROM fills WHERE account=?', (account,)))
             # Last valuation on each recorded day, not reconstructed missing values.
-            history = [dict(r) for r in db.execute('''SELECT substr(s.at,1,10) AS day,s.at,s.equity
-                FROM snapshots s JOIN (SELECT max(at) AS at FROM snapshots WHERE account=? AND at>=? GROUP BY substr(at,1,10)) d
-                ON s.at=d.at WHERE s.account=? ORDER BY s.at''', (account, cutoff, account))]
+            history = [dict(r) for r in db.execute('''SELECT substr(at,1,10) AS day,at,equity
+                FROM snapshots WHERE account=? AND at IN (
+                    SELECT max(at) FROM snapshots WHERE account=? AND at>=? GROUP BY substr(at,1,10)
+                ) ORDER BY at''', (account, account, cutoff))]
             value = D(last['equity']) if last else None
             at = datetime.fromisoformat(last['at']) if last else None
             fresh = bool(at and timedelta(0) <= now-at <= timedelta(seconds=90))
@@ -64,6 +65,21 @@ def report(ledger, store, state, now=None):
             'note':'Simulated portfolios only. Last valuations may be stale; no taxes. Not investment performance evidence.'}
     buf = BytesIO()
     with ZipFile(buf,'w',ZIP_DEFLATED) as z:
-        for name,data in [('status.json',info),('portfolios.json',statistics(ledger,now)),('decisions.json',decision_counts(ledger))]:
+        for name,data in [('status.json',info),('portfolios.json',statistics(ledger,now)),('decisions.json',decision_counts(ledger)),('executions.json',recent_executions(ledger))]:
             z.writestr(name,json.dumps(data,ensure_ascii=False,indent=2))
     return buf.getvalue()
+
+
+def recent_executions(ledger, limit=200):
+    """Bounded, allowlisted paper fills, newest first. No order IDs or raw logs."""
+    from .market import SYMBOLS
+    if not isinstance(limit,int) or not 1 <= limit <= 500:
+        raise ValueError('Invalid execution limit')
+    result = []
+    with closing(read_db(ledger.path)) as db:
+        for r in db.execute('SELECT account,symbol,side,qty,price,fee,at FROM fills ORDER BY at DESC,account,order_id LIMIT ?', (limit,)):
+            if r['symbol'] not in SYMBOLS or r['side'] not in ('buy','sell'):
+                continue
+            result.append({'account':r['account'],'symbol':r['symbol'],'side':r['side'],
+                           'quantity':r['qty'],'price_pln':r['price'],'fee_pln':r['fee'],'at':r['at']})
+    return result
