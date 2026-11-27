@@ -1,0 +1,12 @@
+[Unit]
+Description=GTA Global paper valuation every five minutes during US session window
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09:30/5:00 America/New_York
+OnCalendar=Mon..Fri *-*-* 10..15:00/5:00 America/New_York
+AccuracySec=10s
+Persistent=false
+Unit=gta-global-mark.service
+
+[Install]
+WantedBy=timers.target
