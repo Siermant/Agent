@@ -22,7 +22,7 @@ from .paper_live import PaperRunner, configured_universe
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.12.0-dev"
+VERSION = "0.13.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
@@ -85,6 +85,7 @@ def view(ledger, store, runtime=None):
     paper_ok = bool(paper["enabled"] and paper["state"] == "ok" and paper.get("checked") and market["healthy"] and 0 <= (now-datetime.fromisoformat(paper["checked"])).total_seconds() <= 90)
     return {"version": VERSION, "mode": "crypto-paper" if paper["enabled"] else "monitor-only", "real_trading": False,
             "strategies_running": paper_ok, "paper": paper, "crypto_universe": list(configured_universe()), "time": now.isoformat(),
+            "equity_research": {"state": "manual_preflight_required", "automated_trading": False},
             "market": market, "accounts": ledger.status(), "statistics": statistics(ledger, now),
             "resources": resources(ledger.path.parent),
             "recent_executions": recent_executions(ledger),
@@ -135,6 +136,7 @@ a{color:#9ed7ff} .status{font-weight:600}
 <section><h2>Rynek kryptowalut — EUR</h2><p class="status">""" + escape(health) + """</p>
 <p>Źródło OKX EEA | ostatnia kontrola: """ + escape(str(market["checked"] or "—")) + """ UTC</p>
 <div class="scroll"><table><thead><tr><th>Instrument</th><th>Bid</th><th>Ask</th><th>Ostatnia cena</th><th>Czas UTC</th><th>Stan</th></tr></thead><tbody>""" + quotes + """</tbody></table></div></section>
+<section><h2>Akcje i ETF — analiza badawcza</h2><p>Moduły danych, rankingu i symulatora są dostępne. Wymagany osobny test dostawcy danych; handel giełdowy i IKE pozostają nieaktywne.</p></section>
 <section><h2>15 portfeli wirtualnych — PLN</h2><p>A: zachowawczy · B: zrównoważony · C: aktywny · D: adaptacyjny · E: benchmark. Akcje i IKE pozostają nieaktywne. Kurs PLN jest referencyjny; wyceny mają znaczniki czasu.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Kapitał startowy</th><th>Gotówka</th><th>Ostatnia wycena</th><th>Czas UTC</th><th>Transakcje</th></tr></thead><tbody>""" + portfolios + """</tbody></table></div></section>
 <section><h2>Porównanie wariantów — krypto</h2><p>Zwrot od startu, bieżące obsunięcie od szczytu i prowizje. Ostatnie wyceny mogą być nieaktualne. Benchmark ma inną ekspozycję, brak podatków.</p>
