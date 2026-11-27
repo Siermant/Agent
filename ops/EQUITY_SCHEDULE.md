@@ -115,3 +115,19 @@ this Compose migration; its explicit two-file configuration would omit the
 equity overlay. Adapt and qualify future updater before next image change.
 The qualification candidate does not include the migration tool; fetch the
 separately reviewed installer commit to a temporary root-owned directory.
+
+## Operator confirmation and next Global gate
+Operator reported v0.14 installed. The isolated global_preview returned
+allocation_preview on 2026-11-27 at 10:20 UTC with 28 instruments, 26 stocks
+research-eligible, two ETFs deliberately excluded and benchmark E in cash.
+The actual portfolio plans are hypothetical, not fills. The IEX turnover
+proxy is not consolidated liquidity and all costs remain scenario inputs.
+The separate equity_quotes module checks the Paper US market clock twice
+and latest IEX bid/ask with prior-day NBP USD FX. It accepts quotes up to
+60 seconds old, positive bid/ask/sizes, uncrossed spread <=1%, same NY date.
+All 26 stocks must pass for the qualification to be ready; closed sessions
+return market_closed with ready=false, not a successful quote qualification.
+No raw quotes printed, no persistent ledger or orders. The clock and quote
+endpoints still need actual VM validation during regular market hours.
+Reference: https://docs.alpaca.markets/us/reference/legacyclock ;
+https://docs.alpaca.markets/us/reference/stocklatestquotes-1 .
