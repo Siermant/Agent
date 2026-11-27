@@ -16,6 +16,7 @@ from .equity_job import credentials
 from .equity_quotes import clients,qualify
 from .ledger import Ledger
 from .research_cycle import publish
+from .global_panel import export_panel
 
 FLAGS={'research_only':True,'real_trading':False,'eligible_for_orders':False,
        'simulated':True,'rebalance_enabled':False,'corporate_actions_verified':False,
@@ -91,7 +92,11 @@ def mark(root,fetch,clock=None):
                              'equity_pln':str(equity),'pnl_pln':str(equity-CAPITAL),
                              'return_pct':str((equity/CAPITAL-1)*100),
                              'drawdown_pct':str((1-equity/peak)*100),'risk_blocked':blocked,
-                             'fills':h['fills'],'positions_count':len(pos)})
+                             'fills':h['fills'],'positions_count':len(pos),
+                             'positions':[{'ticker':IDS[k],'quantity':str(qty),'value_pln':str(qty*bids[IDS[k]])} for k,qty in sorted(pos.items())]})
+            fills=[{'account':r['account'],'ticker':IDS[r['symbol']],'quantity':r['qty'],
+                    'price_pln':r['price'],'fee_pln':r['fee'],'at':r['at'],'side':r['side']}
+                   for r in db.execute("SELECT * FROM fills WHERE account LIKE '%:global' ORDER BY at DESC,account,order_id LIMIT 200")]
             # Keep full history in SQLite, export last 30 UTC days' final common marks.
             history=[]
             cutoff=(now-timedelta(days=30)).date().isoformat()
@@ -101,7 +106,7 @@ def mark(root,fetch,clock=None):
                 if set(vals)==set(ACCOUNTS):
                     history.append({'at':stamp,'equity_pln':vals})
         return dict(base,state='valued',valued_at=now.isoformat(),fx_date=snapshot['fx_date'],
-                    quote_source='alpaca_iex_latest',accounts=rows,history=history)
+                    quote_source='alpaca_iex_latest',accounts=rows,history=history,fills=fills)
 
 def main():
     root=Path(os.environ['STATE_DIRECTORY'])
@@ -114,11 +119,23 @@ def main():
         result=mark(root,fetch)
         if result['state']=='valued':
             publish(result,root/'valuation.json')
-        publish({k:v for k,v in result.items() if k not in ('accounts','history')},root/'valuation-status.json')
-        print(json.dumps({k:v for k,v in result.items() if k!='history'},allow_nan=False))
+        status={k:v for k,v in result.items() if k not in ('accounts','history','fills')}
+        publish(status,root/'valuation-status.json')
+        cache=os.getenv('CACHE_DIRECTORY')
+        if cache:
+            previous=None
+            if result['state']=='valued':
+                previous=result
+            elif (root/'valuation.json').is_file():
+                previous=json.loads((root/'valuation.json').read_text())
+            export_panel(cache,status,previous)
+        print(json.dumps({k:v for k,v in result.items() if k not in ('history','fills')},allow_nan=False))
     except Exception as exc:
         error=dict(FLAGS,state='failed',checked_utc=datetime.now(timezone.utc).isoformat(),error_type=type(exc).__name__)
         publish(error,root/'valuation-status.json')
+        cache=os.getenv('CACHE_DIRECTORY')
+        if cache:
+            export_panel(cache,error,None)
         print(json.dumps(error))
         raise SystemExit(1)
 
