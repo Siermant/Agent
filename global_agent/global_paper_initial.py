@@ -17,7 +17,7 @@ from contextlib import closing
 from .ledger import Ledger, CAPITALS, EXPOSURE
 from .equity_data import moment
 from .equity_job import credentials, QUALIFIED
-from .equity_quotes import clients, qualify, market_clock, SYMBOLS
+from .equity_quotes import clients, qualify, market_clock, SYMBOLS, FEEDS, quote_delay, session_quote_valid
 from .global_preview import preview, SECTORS
 from .equity_expand import asset_client
 from .equity_preflight import calendar_client
@@ -155,10 +155,16 @@ def open_initial(root,plan,snapshot,clock=None,*,allow_unquoted_cash=False):
             return read_existing(path)
         now=clock()
         budgets=validate(plan,now)
+        source=snapshot.get('source')
+        delay=quote_delay(source)
+        if snapshot.get('quote_delay_seconds',0)!=delay:
+            raise ValueError('Inconsistent delay metadata')
+        if delay and allow_unquoted_cash:
+            raise ValueError('Delayed experiment requires all selected quotes')
         if (snapshot.get('market_open') is not True
             or snapshot.get('research_only') is not True or snapshot.get('real_trading') is not False
             or snapshot.get('eligible_for_orders') is not False
-            or snapshot.get('source')!='alpaca_iex_latest' or snapshot.get('fx_source')!='nbp_table_a_prior_day'
+            or snapshot.get('fx_source')!='nbp_table_a_prior_day'
             or not timedelta(0)<=now-moment(snapshot['checked_utc'])<=timedelta(seconds=15)):
             raise ValueError('Fresh qualified snapshot required')
         close=moment(snapshot['session_close_utc'])
@@ -176,7 +182,7 @@ def open_initial(root,plan,snapshot,clock=None,*,allow_unquoted_cash=False):
             stamp=moment(q['observed_at'])
             size=q['ask_size_shares']
             if (not 0<bid<=ask or (ask-bid)/bid>D('.01') or
-                not timedelta(0)<=now-stamp<=timedelta(seconds=60) or type(size) is not int or size<=0):
+                not session_quote_valid(stamp,now,delay,close) or type(size) is not int or size<=0):
                 raise ValueError('Invalid quote')
             quotes[ident]=(bid,ask,stamp)
             sizes[ident]=D(size)
@@ -184,7 +190,7 @@ def open_initial(root,plan,snapshot,clock=None,*,allow_unquoted_cash=False):
         skipped=[]
         with tempfile.TemporaryDirectory(dir=root,prefix='initial-') as tmp:
             temp=Path(tmp)/'ledger.db'
-            ledger=Ledger(temp,clock=clock)
+            ledger=Ledger(temp,clock=clock,max_age=60+delay)
             for account in ACCOUNTS:
                 ledger.mark(account,quotes)
                 for ident,budget in budgets[account].items():
@@ -208,7 +214,10 @@ def open_initial(root,plan,snapshot,clock=None,*,allow_unquoted_cash=False):
                      'simulated':True,'one_time_initial_only':True,'rebalance_enabled':False,
                      'generated_utc':clock().isoformat(),'plan_generated_utc':plan['generated_utc'],
                      'fx_date':snapshot['fx_date'],'fx_reference_only':True,
-                     'quote_source':'alpaca_iex_latest','cost_scenario':'10bps commission min 2 PLN + 10bps on ask',
+                     'quote_source':source,'quote_delay_seconds':delay,
+                     'quote_observed_from_utc':min(q[2] for q in quotes.values()).isoformat(),
+                     'quote_observed_to_utc':max(q[2] for q in quotes.values()).isoformat(),
+                     'cost_scenario':'10bps commission min 2 PLN + 10bps on ask',
                      'quote_policy':'selected_plan_cash_fallback' if missing else 'selected_plan_all_qualified',
                      'selected_symbols':sorted(required),'unquoted_symbols':sorted(missing),
                      'minimum_quoted_budget_fraction':str(MIN_QUOTED_BUDGET) if allow_unquoted_cash else '1',
@@ -237,7 +246,10 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--apply-paper',action='store_true',required=True)
     p.add_argument('--allow-unquoted-cash',action='store_true',help='Paper only: keep unquoted allocations in cash if each planned portfolio has at least 75% quoted budget')
+    p.add_argument('--feed',choices=tuple(FEEDS),default='iex')
     args=p.parse_args()
+    if args.feed=='delayed_sip' and args.allow_unquoted_cash:
+        p.error('Delayed SIP experiment requires all selected quotes')
     try:
         root=Path(os.environ['STATE_DIRECTORY'])
         if root.name!='gta-global-paper':
@@ -260,11 +272,11 @@ def main():
             selected=sorted({IDS[k] for k in selected_ids(budgets)})
             if not selected:
                 raise ValueError('No planned allocations')
-            ck,qt=clients(key,secret,symbols=selected)
+            ck,qt=clients(key,secret,symbols=selected,feed=args.feed)
             # Retry a bounded number of times with the same plan. Each snapshot
             # is independently qualified; never merge stale quotes across attempts.
             for attempt in range(5):
-                snapshot=qualify(ck,qt,include_quotes=True,symbols=selected,include_partial=args.allow_unquoted_cash)
+                snapshot=qualify(ck,qt,include_quotes=True,symbols=selected,include_partial=args.allow_unquoted_cash,feed=args.feed)
                 if snapshot['ready']:
                     break
                 print(json.dumps({k:v for k,v in snapshot.items() if k!='quotes'},allow_nan=False),flush=True)
