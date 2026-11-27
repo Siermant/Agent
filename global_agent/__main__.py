@@ -18,11 +18,11 @@ from .diagnostics import statistics, report, decision_counts, recent_executions
 from .remote_diag import GitHubSink, Outbox, run_cycle
 from .backup import daily_backup
 from .maintenance import compact_snapshots
-from .paper_live import PaperRunner
+from .paper_live import PaperRunner, configured_universe
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.11.0-dev"
+VERSION = "0.12.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
@@ -84,7 +84,7 @@ def view(ledger, store, runtime=None):
     market = store.status(now)
     paper_ok = bool(paper["enabled"] and paper["state"] == "ok" and paper.get("checked") and market["healthy"] and 0 <= (now-datetime.fromisoformat(paper["checked"])).total_seconds() <= 90)
     return {"version": VERSION, "mode": "crypto-paper" if paper["enabled"] else "monitor-only", "real_trading": False,
-            "strategies_running": paper_ok, "paper": paper, "time": now.isoformat(),
+            "strategies_running": paper_ok, "paper": paper, "crypto_universe": list(configured_universe()), "time": now.isoformat(),
             "market": market, "accounts": ledger.status(), "statistics": statistics(ledger, now),
             "resources": resources(ledger.path.parent),
             "recent_executions": recent_executions(ledger),
@@ -118,7 +118,7 @@ def render(state):
         return "—" if value is None else f"{value / 1048576:.1f} MiB"
     resource_label = "RAM kontenera: " + mib(res.get("memory_bytes")) + " / " + mib(res.get("memory_limit_bytes")) + " | Wolne miejsce na dysku: " + mib(res.get("disk_free_bytes"))
     paper = state["paper"]
-    mode = "Symulacja BTC/ETH (raz na dobę) — " + paper["state"] if paper["enabled"] else "Tryb monitorowania"
+    mode = "Symulacja (" + str(len(state.get("crypto_universe", configured_universe()))) + " par EUR, raz na dobę) — " + paper["state"] if paper["enabled"] else "Tryb monitorowania"
     if paper["enabled"] and not state["strategies_running"]:
         mode += " (wstrzymana lub niepotwierdzona aktualność)"
     health = "Dane aktualne" if market["healthy"] else "Brak aktualnych danych — handel zablokowany"
