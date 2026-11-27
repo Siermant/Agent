@@ -12,6 +12,7 @@ import threading
 
 from .ledger import Ledger
 from .equity_panel import summary as equity_summary, render_equities
+from .global_panel import summary as global_summary, render_global
 from .presentation import request_path, equity_chart
 from .service_guard import service_lock
 from .preflight import resources
@@ -23,7 +24,7 @@ from .paper_live import PaperRunner, configured_universe
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.14.0-dev"
+VERSION = "0.15.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
@@ -87,6 +88,7 @@ def view(ledger, store, runtime=None):
     return {"version": VERSION, "mode": "crypto-paper" if paper["enabled"] else "monitor-only", "real_trading": False,
             "strategies_running": paper_ok, "paper": paper, "crypto_universe": list(configured_universe()), "time": now.isoformat(),
             "equity_research": {"state": "not_connected", "automated_trading": False},
+            "global_paper": {"state": "not_connected", "real_trading": False},
             "market": market, "accounts": ledger.status(), "statistics": statistics(ledger, now),
             "resources": resources(ledger.path.parent),
             "recent_executions": recent_executions(ledger),
@@ -137,8 +139,8 @@ a{color:#9ed7ff} .status{font-weight:600}
 <section><h2>Rynek kryptowalut — EUR</h2><p class="status">""" + escape(health) + """</p>
 <p>Źródło OKX EEA | ostatnia kontrola: """ + escape(str(market["checked"] or "—")) + """ UTC</p>
 <div class="scroll"><table><thead><tr><th>Instrument</th><th>Bid</th><th>Ask</th><th>Ostatnia cena</th><th>Czas UTC</th><th>Stan</th></tr></thead><tbody>""" + quotes + """</tbody></table></div></section>
-""" + render_equities(state.get("equity_research", {})) + """
-<section><h2>15 portfeli wirtualnych — PLN</h2><p>A: zachowawczy · B: zrównoważony · C: aktywny · D: adaptacyjny · E: benchmark. Akcje i IKE pozostają nieaktywne. Kurs PLN jest referencyjny; wyceny mają znaczniki czasu.</p>
+""" + render_equities(state.get("equity_research", {})) + render_global(state.get("global_paper", {})) + """
+<section><h2>15 portfeli bazowych — PLN</h2><p>A: zachowawczy · B: zrównoważony · C: aktywny · D: adaptacyjny · E: benchmark. Portfele Global w osobnym eksperymencie powyżej; w tej tabeli aktywne jest tylko krypto, IKE nieaktywne. Kurs PLN jest referencyjny; wyceny mają znaczniki czasu.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Kapitał startowy</th><th>Gotówka</th><th>Ostatnia wycena</th><th>Czas UTC</th><th>Transakcje</th></tr></thead><tbody>""" + portfolios + """</tbody></table></div></section>
 <section><h2>Porównanie wariantów — krypto</h2><p>Zwrot od startu, bieżące obsunięcie od szczytu i prowizje. Ostatnie wyceny mogą być nieaktualne. Benchmark ma inną ekspozycję, brak podatków.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Zwrot</th><th>Obsunięcie</th><th>Prowizje PLN</th><th>Transakcje</th><th>Wycena</th></tr></thead><tbody>""" + stats_rows + """</tbody></table></div></section>
@@ -168,6 +170,7 @@ def handler(ledger, store, runtime=None):
                     state = view(ledger, store, runtime)
                     if path in ("/", "/api/status"):
                         state["equity_research"] = equity_summary(os.getenv("GTA_EQUITY_REPORT_DIR"))
+                        state["global_paper"] = global_summary(os.getenv("GTA_GLOBAL_REPORT_DIR"))
                     if path == "/":
                         body, kind = render(state).encode("utf-8"), "text/html; charset=utf-8"
                     elif path == "/raport.zip":
