@@ -5,7 +5,9 @@ from pathlib import Path
 from decimal import Decimal as D
 from global_agent.ledger import Ledger
 from global_agent.market import QuoteStore
-from global_agent.paper_live import PaperRunner, UNIVERSE
+from global_agent.paper_live import PaperRunner, UNIVERSE, ALL_UNIVERSE, configured_universe
+from unittest.mock import patch
+import os
 
 class PaperLiveTests(unittest.TestCase):
     def setUp(self):
@@ -69,3 +71,47 @@ class PaperLiveTests(unittest.TestCase):
         self.feed()
         with self.assertRaises(ValueError): runner.tick()
         self.assertEqual(self.fills(),0)
+
+    def all_context(self, day):
+        return day-timedelta(days=1),D(4),{s:self.trend[:] for s in ALL_UNIVERSE}
+
+    def test_all_pairs_and_caps(self):
+        self.feed(ALL_UNIVERSE)
+        runner=PaperRunner(self.ledger,self.store,self.all_context,ALL_UNIVERSE)
+        self.assertEqual(runner.tick(),'ok')
+        for p in 'ABCD':
+            state=runner.state(p+':crypto')
+            self.assertEqual(set(state['positions']),set(ALL_UNIVERSE))
+            equity=D(state['last_equity_pln'])
+            self.assertGreaterEqual(D(state['cash_pln']),equity*D('.20'))
+            for qty in state['positions'].values():
+                self.assertLessEqual(D(qty)*D(396),equity*D('.05'))
+        self.assertEqual(set(runner.state('E:crypto')['positions']),{'BTC-EUR'})
+        count=self.fills()
+        self.assertEqual(runner.tick(),'ok')
+        self.assertEqual(count,self.fills())
+
+    def test_core_then_all_same_day(self):
+        self.feed()
+        self.assertEqual(self.runner.tick(),'ok')
+        count=self.fills()
+        self.feed(ALL_UNIVERSE)
+        extended=PaperRunner(self.ledger,self.store,self.all_context,ALL_UNIVERSE)
+        self.assertEqual(extended.tick(),'ok')
+        self.assertEqual(self.fills(),count+24)
+        self.assertEqual(self.runner.tick(),'incompatible_positions')
+        self.assertEqual(self.fills(),count+24)
+
+    def test_all_missing_quote_blocks(self):
+        self.feed(ALL_UNIVERSE[:-1])
+        runner=PaperRunner(self.ledger,self.store,self.all_context,ALL_UNIVERSE)
+        self.assertEqual(runner.tick(),'incomplete_quotes')
+        self.assertEqual(self.fills(),0)
+
+    def test_universe_config(self):
+        for mode,expected in [('core',UNIVERSE),('all',ALL_UNIVERSE)]:
+            with patch.dict(os.environ,{'GTA_CRYPTO_UNIVERSE':mode}):
+                self.assertEqual(configured_universe(),expected)
+        with patch.dict(os.environ,{'GTA_CRYPTO_UNIVERSE':'typo'}):
+            with self.assertRaises(ValueError):
+                configured_universe()
