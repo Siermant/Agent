@@ -10,8 +10,8 @@ from .equity_preflight import calendar_client
 from .equity_scan import scan
 from .equity_job import credentials
 
-STOCKS='AAPL MSFT NVDA AMD AVGO ORCL AMZN GOOGL META JPM BAC V MA XOM CVX JNJ ABBV UNH CAT GE HON KO PEP WMT COST'.split()
-ETFS='SPY QQQ VT GLD TLT'.split()
+STOCKS='AAPL MSFT NVDA AMD AVGO ORCL AMZN GOOGL META JPM BAC V MA XOM CVX JNJ ABBV UNH CAT GE HON KO PEP WMT COST IBM'.split()
+ETFS='SPY QQQ VT TLT'.split()
 CANDIDATES={**{s:'stock' for s in STOCKS},**{s:'etf' for s in ETFS}}
 EXCHANGES={'NASDAQ':'XNAS','NYSE':'XNYS'}
 
