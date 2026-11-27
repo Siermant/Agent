@@ -64,6 +64,37 @@ def normalize(kind,row,selected,start,end):
         raise ValueError('Unexpected process date')
     event={'id':ident,'type':kind,'symbols':matched,'dates':dates,
            'state':'manual_review_required'}
+    if kind=='cash_dividends':
+        # Export only known schema diagnostics, never raw payloads or identifiers beyond event ID.
+        currency=row.get('currency')
+        event['currency_status']=('missing' if 'currency' not in row else
+                                  'empty' if currency=='' else 'USD' if currency=='USD' else
+                                  'other_or_invalid')
+        for k in ('foreign','special'):
+            v=row.get(k)
+            event[k+'_status']=('missing' if k not in row else
+                                'false' if v is False else 'true' if v is True else 'invalid')
+        sub=row.get('sub_type')
+        event['sub_type_status']=('absent_or_empty' if sub in (None,'') else
+                                  sub if sub in ('interest','return_of_capital') else 'other')
+        try:
+            amount=positive(str(row['rate']))
+            event['rate_valid']=amount<=D(10000)
+            if event['rate_valid']:
+                event['reported_rate']=str(amount)
+        except (KeyError,ValueError,ArithmeticError,TypeError):
+            event['rate_valid']=False
+        reasons=[]
+        if currency!='USD':reasons.append('currency_not_explicit_usd')
+        if row.get('foreign') is not False:reasons.append('foreign_not_explicit_false')
+        if row.get('special') is not False:reasons.append('special_not_explicit_false')
+        if sub not in (None,''):reasons.append('nonordinary_subtype')
+        if any(k.startswith('due_bill') for k in dates):reasons.append('due_bill')
+        if not {'process_date','ex_date','payable_date'}<=dates.keys():reasons.append('missing_dates')
+        elif dates['payable_date']<dates['ex_date']:reasons.append('date_order')
+        if not event['rate_valid']:reasons.append('invalid_rate')
+        if row.get('symbol') not in selected or len(matched)!=1:reasons.append('identity_ambiguous')
+        event['review_reasons']=reasons
     # Incomplete data and all complex event types are retained as review items.
     # No currency guessing, no tax model, no implicit fractional-share handling.
     if kind not in SIMPLE or 'process_date' not in dates or 'ex_date' not in dates:
@@ -134,11 +165,15 @@ def scan(request,symbols,start,end):
         cursor=last+timedelta(days=1)
     events=sorted(found.values(),key=lambda e:(e['dates'].get('ex_date',e['dates'].get('effective_date',e['dates'].get('process_date',''))),e['id']))
     counts={k:sum(e['state']==k for e in events) for k in ('simple_dividend_candidate','simple_split_candidate','manual_review_required')}
+    reasons={}
+    for e in events:
+        for reason in e.get('review_reasons',[]):
+            reasons[reason]=reasons.get(reason,0)+1
     return {'state':'feed_qualified','research_only':True,'real_trading':False,'eligible_for_orders':False,
             'corporate_actions_verified':False,'coverage_guaranteed':False,'accounting_enabled':False,
             'date_basis':'provider_process_date','process_start':str(start),'process_end':str(end),
             'symbols_checked':len(selected),'pages':pages,'events_count':len(events),'counts':counts,
-            'events':events}
+            'review_reason_counts':reasons,'events':events}
 
 
 def main():
