@@ -42,3 +42,40 @@ class EquityJobTests(unittest.TestCase):
             self.assertEqual(credentials(tmp),('dummykey','dummysecret'))
             p.write_text(json.dumps({'key':'dummykey','secret':'bad value'}))
             with self.assertRaises(ValueError): credentials(tmp)
+
+
+class ExpandedJobTests(unittest.TestCase):
+    def setup_scan(self):
+        from global_agent.equity_job import QUALIFIED, expanded_scan
+        from global_agent.equity_expand import CANDIDATES
+        from uuid import uuid5, NAMESPACE_DNS
+        def asset(symbol):
+            exchange = ('NASDAQ' if symbol in QUALIFIED['XNAS'] else
+                        'NYSE' if symbol in QUALIFIED['XNYS'] else 'ARCA')
+            return {'id':str(uuid5(NAMESPACE_DNS,symbol)), 'symbol':symbol,
+                    'class':'us_equity','status':'active','exchange':exchange}
+        def scanner(*args,universe):
+            return dict(result(),expected_instruments=28,
+                        cohorts=[{'mic':mic,'instruments':[
+                            {'ticker':s,'mic':mic,'kind':kind}
+                            for s,kind in items.items()]} for mic,items in universe.items()])
+        return expanded_scan,asset,scanner
+    def test_exact_membership(self):
+        expand,asset,scanner=self.setup_scan()
+        r=expand(asset,None,None,scanner)
+        self.assertEqual(r['expected_instruments'],28)
+        self.assertEqual(r['candidate_count'],30)
+        self.assertEqual({x['ticker'] for x in r['discovery_excluded']},{'SPY','VT'})
+    def test_exchange_change_blocks(self):
+        expand,asset,scanner=self.setup_scan()
+        with self.assertRaisesRegex(ValueError,'Qualified universe changed'):
+            expand(lambda s:dict(asset(s),exchange='NYSE') if s=='WMT' else asset(s),
+                   None,None,scanner)
+    def test_missing_rank_blocks(self):
+        expand,asset,scanner=self.setup_scan()
+        def incomplete(*args,**kwargs):
+            r=scanner(*args,**kwargs)
+            r['cohorts'][0]['instruments'].pop()
+            return r
+        with self.assertRaisesRegex(ValueError,'Incomplete qualified ranking'):
+            expand(asset,None,None,incomplete)
