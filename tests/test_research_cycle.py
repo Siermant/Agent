@@ -2,10 +2,11 @@ import csv
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime,date,timedelta,timezone
 from pathlib import Path
 from global_agent.equity_data import FIELDS,CAL_FIELDS,FX_FIELDS
-from global_agent.research_cycle import research,publish
+from global_agent.research_cycle import research,publish,provider_cycle
 
 NOW=datetime(2026,11,27,12,tzinfo=timezone.utc)
 
@@ -84,3 +85,18 @@ class ResearchCycleTests(unittest.TestCase):
         publish({'ok':True},p)
         with self.assertRaises(ValueError): publish({'bad':float('nan')},p)
         self.assertEqual(json.loads(p.read_text()),{'ok':True})
+
+    def test_provider_orchestration(self):
+        self.fixtures()
+        with self.bars.open(newline='') as f:
+            data=list(csv.DictReader(f))
+        paths=[]
+        def fake_fx(start,end,output,**kwargs):
+            paths.append(output)
+            self.csv(output,FX_FIELDS,[])
+        with patch('global_agent.research_cycle.alpaca_data.collect',return_value=data) as collect, patch('global_agent.research_cycle.fx_reference.export',side_effect=fake_fx) as fx, patch('global_agent.research_cycle.research',side_effect=lambda *args: research(*args,now=NOW)):
+            result=provider_cycle(self.root/'manifest.csv',self.calendar,self.a,lambda _:None)
+        self.assertEqual(result['state'],'hypothetical_plan')
+        self.assertEqual(collect.call_count,1)
+        self.assertEqual(fx.call_count,1)
+        self.assertFalse(paths[0].exists())
