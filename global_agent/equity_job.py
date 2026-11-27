@@ -53,12 +53,44 @@ def cycle(state_dir, fetch, clock=None):
     return status
 
 
+# Listing membership confirmed by the operator's 2026-11-27 qualification.
+QUALIFIED = {
+    'XNAS': frozenset('WMT COST AAPL TLT PEP HON AMZN MSFT META QQQ GOOGL AVGO AMD NVDA'.split()),
+    'XNYS': frozenset('KO MA V ABBV JNJ IBM CVX GE XOM JPM BAC UNH CAT ORCL'.split()),
+}
+
+
+def expanded_scan(asset_request, calendar_request, bar_request, scanner=scan):
+    # Local import avoids a circular import of the credentials helper.
+    from .equity_expand import discover, CANDIDATES
+    universe, excluded = discover(asset_request)
+    expected = {mic:{symbol:CANDIDATES[symbol] for symbol in symbols}
+                for mic,symbols in QUALIFIED.items()}
+    if universe != expected or {x['ticker']:x['reason'] for x in excluded} != {
+            'SPY':'venue_calendar_not_supported', 'VT':'venue_calendar_not_supported'}:
+        raise ValueError('Qualified universe changed')
+    result = scanner(calendar_request,bar_request,universe=universe)
+    observed = {}
+    seen = set()
+    for cohort in result['cohorts']:
+        for row in cohort['instruments']:
+            symbol, mic = row['ticker'], row['mic']
+            if symbol in seen or mic != cohort['mic']:
+                raise ValueError('Duplicate or mismatched ranked instrument')
+            seen.add(symbol)
+            observed.setdefault(mic,{})[symbol]=row['kind']
+    if observed != expected or result['expected_instruments'] != len(seen):
+        raise ValueError('Incomplete qualified ranking')
+    return dict(result,candidate_count=len(CANDIDATES),discovery_excluded=excluded)
+
+
 def main():
     try:
         root=Path(os.environ['STATE_DIRECTORY'])
         def fetch():
             key,secret=credentials(os.environ['CREDENTIALS_DIRECTORY'])
-            return scan(calendar_client(key,secret),client(key,secret))
+            from .equity_expand import asset_client
+            return expanded_scan(asset_client(key,secret),calendar_client(key,secret),client(key,secret))
         status=cycle(root,fetch)
         print(json.dumps(status,allow_nan=False))
     except Exception as exc:
