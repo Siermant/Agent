@@ -49,6 +49,7 @@ def panel_ok(s,minimum,version):
         g=s['global_paper']
         if (g.get('real_trading') is not False or g.get('simulated') is not True
             or g.get('state') not in ('valued','market_closed','incomplete_quotes','session_changed')
+            or g.get('quote_source')!='alpaca_delayed_sip_latest' or g.get('quote_delay_seconds')!=900
             or len(g.get('accounts',[]))!=5 or sum(r['fills'] for r in g['accounts'])<1):
             raise RuntimeError('Global valuation unavailable')
 
@@ -85,6 +86,7 @@ def actual_reports(image):
           'assert a["state"]=="ok" and a["instruments"]==28; '
           'assert b["state"] in ("valued","market_closed","incomplete_quotes","session_changed"); '
           'assert b["real_trading"] is False and len(b["accounts"])==5; '
+          'assert b["quote_source"]=="alpaca_delayed_sip_latest" and b["quote_delay_seconds"]==900; '
           'assert sum(x["fills"] for x in b["accounts"])>0')
     command(['docker','run','--rm',*SAFE,
              '--mount','type=bind,src=/var/cache/gta-equity-export,dst=/equity-report,readonly',
