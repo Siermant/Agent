@@ -9,7 +9,7 @@ from pathlib import Path
 from ops.stage_release import qualify, command, SAFE, approved_sha
 from ops.update_release import BASE
 
-CANDIDATE='2d6ea19830322e9f02d9f960f73bbadd40a2d99a'
+CANDIDATE='4ee2e808fd0d9942db61df901e73b4aaa32c3875'
 
 def fixture(root):
     from global_agent.global_panel import FLAGS,export_panel,ACCOUNTS
@@ -19,7 +19,9 @@ def fixture(root):
     accounts=[dict(account=a,capital_pln='50000',cash_pln='50000',invested_pln='0',
                    equity_pln='50000',pnl_pln='0',return_pct='0',drawdown_pct='0',
                    risk_blocked=False,fills=0,positions_count=0,positions=[]) for a in ACCOUNTS]
-    v=dict(FLAGS,state='valued',checked_utc=at,valued_at=at,quote_source='alpaca_iex_latest',
+    v=dict(FLAGS,state='valued',checked_utc=at,valued_at=at,quote_source='alpaca_delayed_sip_latest',
+           quote_delay_seconds=900,quote_observed_from_utc=(now-timedelta(seconds=910)).isoformat(),
+           quote_observed_to_utc=(now-timedelta(seconds=905)).isoformat(),
            fx_date=str(now.date()-timedelta(days=1)),accounts=accounts,
            history=[{'at':at,'equity_pln':{a:'50000' for a in ACCOUNTS}}],fills=[])
     export_panel(root,v,v)
@@ -48,8 +50,9 @@ def stage(output):
                    'assert len(s["accounts"])==15; '
                    'assert s["equity_research"]["state"]=="ok" and s["equity_research"]["instruments"]==28; '
                    'assert s["global_paper"]["state"]=="valued" and len(s["global_paper"]["accounts"])==5; '
+                   'assert s["global_paper"]["quote_delay_seconds"]==900 and s["global_paper"]["quote_source"]=="alpaca_delayed_sip_latest"; '
                    'h=u.urlopen("http://127.0.0.1:8080/",timeout=3).read().decode(); '
-                   'assert "Global A" in h and "Historia zwrotu" in h')
+                   'assert "Global A" in h and "Historia zwrotu" in h and "Delayed SIP" in h and "15 minut" in h')
             for i in range(15):
                 try:
                     command(['docker','exec',cid,'python','-c',probe],timeout=10)
