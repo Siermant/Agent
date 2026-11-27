@@ -12,7 +12,7 @@ from pathlib import Path
 from .alpaca_data import NY,client as bars_client
 from .equity_data import moment
 from .equity_job import credentials
-from .equity_quotes import clients,qualify,SYMBOLS
+from .equity_quotes import clients,qualify,SYMBOLS,quote_delay,session_quote_valid
 from .equity_expand import asset_client
 from .equity_preflight import calendar_client
 from .global_preview import preview as initial_preview,SECTORS
@@ -100,6 +100,7 @@ def read_state(path):
     holdings=read_holdings(path)
     with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)) as db:
         db.row_factory=sqlite3.Row
+        db.execute('BEGIN')
         for account in ACCOUNTS:
             r=db.execute('SELECT peak,day,day_equity,week,week_equity FROM accounts WHERE id=?',(account,)).fetchone()
             last=db.execute('SELECT at,equity FROM snapshots WHERE account=? ORDER BY at DESC LIMIT 1',(account,)).fetchone()
@@ -111,31 +112,42 @@ def read_state(path):
 def fee(value):
     return max(MIN_FEE,(value*RATE).quantize(CENT,rounding=ROUND_HALF_UP))
 
+def required_symbols(holdings,budgets):
+    return sorted({IDS[k] for h in holdings.values() for k in h['positions']} |
+                  {IDS[k] for b in budgets.values() for k in b})
+
 def propose(receipt,holdings,plan,snapshot,blocks,now):
-    if receipt.get('quote_source')!='alpaca_iex_latest':
-        raise ValueError('Delayed SIP rebalance research not yet qualified')
+    source=receipt['quote_source']
+    delay=quote_delay(source)
+    if receipt.get('quote_delay_seconds',0)!=delay:
+        raise ValueError('Invalid receipt delay')
     budgets=validate(plan,now)
+    selected=set(required_symbols(holdings,budgets))
     if (snapshot.get('ready') is not True or snapshot.get('market_open') is not True
-        or snapshot.get('state')!='qualified' or snapshot.get('source')!='alpaca_iex_latest'
+        or snapshot.get('state')!='qualified' or snapshot.get('source')!=source
+        or snapshot.get('quote_delay_seconds',0)!=delay
         or snapshot.get('fx_source')!='nbp_table_a_prior_day'
         or snapshot.get('real_trading') is not False or snapshot.get('eligible_for_orders') is not False
         or snapshot.get('research_only') is not True
         or not timedelta(0)<=now-moment(snapshot['checked_utc'])<=timedelta(seconds=15)
         or moment(snapshot['session_close_utc'])-now<timedelta(seconds=90)
-        or set(snapshot['quotes'])!=set(SYMBOLS)):
-        raise ValueError('Fresh full-universe quotes required')
+        or not selected or not selected<=set(snapshot['quotes'])<=set(SYMBOLS)):
+        raise ValueError('Qualified selected quotes required')
     opened=moment(receipt['generated_utc'])
     if opened>now or set(holdings)!=set(ACCOUNTS):
         raise ValueError('Invalid holdings chronology')
     quotes={}
+    observed=[]
     for k,s in IDS.items():
+        if s not in selected:continue
         q=snapshot['quotes'][s]
         bid,ask=number(q['bid_pln_reference']),number(q['ask_pln_reference'])
-        if not 0<bid<=ask or (ask-bid)/bid>D('.01') or not timedelta(0)<=now-moment(q['observed_at'])<=timedelta(seconds=60):
+        if not 0<bid<=ask or (ask-bid)/bid>D('.01') or not session_quote_valid(moment(q['observed_at']),now,delay,moment(snapshot['session_close_utc'])):
             raise ValueError('Invalid quotes')
         bs,az=q['bid_size_shares'],q['ask_size_shares']
         if any(type(n) is not int or n<=0 for n in (bs,az)):
             raise ValueError('Invalid displayed size')
+        observed.append(moment(q['observed_at']))
         quotes[k]=(bid,ask,D(bs),D(az))
     adv={f"alpaca:{r['mic']}:{r['ticker']}":number(r['iex_turnover_20_pln']) for r in plan['instruments']}
     rows=[]
@@ -231,7 +243,10 @@ def propose(receipt,holdings,plan,snapshot,blocks,now):
                    estimated_cost_pln=str(cost),turnover_pln=str(turn),
                    projected_cash_pln=str(cash),projected_equity_pln=str(cash+value(pos)))
     return dict(FLAGS,state='rebalance_preview',checked_utc=now.isoformat(),
-                cost_model='IEX bid/ask plus 10bps slippage and 10bps commission min PLN2',
+                quote_source=source,quote_delay_seconds=delay,
+                quote_observed_from_utc=min(observed).isoformat(),quote_observed_to_utc=max(observed).isoformat(),
+                retrospective_prices=bool(delay),
+                cost_model='Reference bid/ask plus 10bps slippage and 10bps commission min PLN2',
                 cooldown_days=7,turnover_limit_pct=15,minimum_new_position_pct=1,
                 corporate_blocks=blocks,accounts=rows)
 
@@ -249,9 +264,10 @@ def main():
         if (receipt.get('one_time_initial_only') is not True or receipt.get('rebalance_enabled') is not False
                 or receipt.get('simulated') is not True):
             raise ValueError('Expected initial-only experiment')
-        if receipt.get('quote_source')!='alpaca_iex_latest':
-            print(json.dumps(dict(FLAGS,state='delayed_rebalance_not_qualified')))
-            return
+        delay=quote_delay(receipt['quote_source'])
+        if receipt.get('quote_delay_seconds',0)!=delay:
+            raise ValueError('Invalid receipt delay')
+        quote_feed='delayed_sip' if delay==900 else 'iex'
         now=datetime.now(timezone.utc)
         if now-moment(receipt['generated_utc'])<COOLDOWN:
             print(json.dumps(dict(FLAGS,state='cooldown',earliest_review_utc=(moment(receipt['generated_utc'])+COOLDOWN).isoformat())))
@@ -262,7 +278,9 @@ def main():
         feed=scan(corporate_client(key,secret),SYMBOLS,today-timedelta(days=60),today+timedelta(days=30))
         blocks=event_blocks(feed,audit,moment(receipt['generated_utc']).astimezone(NY).date(),today)
         plan=initial_preview(asset_client(key,secret),calendar_client(key,secret),bars_client(key,secret))
-        snapshot=qualify(*clients(key,secret),include_quotes=True)
+        selected=required_symbols(h,validate(plan,datetime.now(timezone.utc)))
+        snapshot=qualify(*clients(key,secret,symbols=selected,feed=quote_feed),
+                         symbols=selected,feed=quote_feed,include_quotes=True)
         if not snapshot['ready']:
             print(json.dumps(dict(FLAGS,state=snapshot['state'])))
             return
