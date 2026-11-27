@@ -20,8 +20,7 @@ class EquityPanelTests(unittest.TestCase):
         self.r=dict(flags,state='ranked',generated_utc=stamp,expected_instruments=1,
                     cohorts=[dict(mic='XNAS',source='alpaca_iex_daily',last_session='2026-11-25',instruments=[row])])
     def read(self,now=NOW):
-        for name,obj in [('status',self.s),('ranking',self.r)]:
-            (self.root/(name+'.json')).write_text(json.dumps(obj))
+        (self.root/'panel.json').write_text(json.dumps({'status':self.s,'ranking':self.r}))
         return summary(self.root,now)
     def test_valid_and_escape(self):
         r=self.read()
