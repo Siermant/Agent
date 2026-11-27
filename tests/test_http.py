@@ -65,6 +65,17 @@ class HttpTests(unittest.TestCase):
         self.assertIn('Pobierz raport.zip',page)
         self.assertIn('handel zablokowany',page)
 
+    def test_query_parameter(self):
+        with self.get('/?utm_source=chatgpt.com') as res:
+            page=res.read().decode()
+            self.assertIn('Zwrot strategii A–E',page)
+            self.assertIn('<svg',page)
+        with self.get('/api/status?x=1') as res:
+            self.assertFalse(json.load(res)['real_trading'])
+        with self.assertRaises(HTTPError) as err:
+            self.get('/api/execute?x=1')
+        self.assertEqual(err.exception.code,404)
+
     def test_report(self):
         with self.get('/raport.zip') as res:
             self.assertIn('raport.zip',res.headers['Content-Disposition'])
