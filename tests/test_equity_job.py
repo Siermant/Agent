@@ -79,3 +79,34 @@ class ExpandedJobTests(unittest.TestCase):
             return r
         with self.assertRaisesRegex(ValueError,'Incomplete qualified ranking'):
             expand(asset,None,None,incomplete)
+
+
+class PanelExportCycleTests(unittest.TestCase):
+    def test_cycle_exports_success_then_failure(self):
+        from global_agent.equity_panel import summary
+        with tempfile.TemporaryDirectory() as state, tempfile.TemporaryDirectory() as panel:
+            p=Path(panel)/'panel.json'
+            def fetch():
+                self.assertEqual(json.loads(p.read_text())['status']['state'],'running')
+                row=dict(instrument_id='fixture',ticker='TEST',mic='XNAS',rank=1,
+                         return_20_pct=1,return_60_pct=2,annualized_volatility_pct=3,
+                         max_drawdown_60_pct=4,score=5)
+                return dict(result(),cohorts=[dict(mic='XNAS',source='alpaca_iex_daily',
+                    last_session='2026-11-25',instruments=[row])])
+            self.assertEqual(cycle(state,fetch,lambda:NOW,export_dir=panel)['state'],'ok')
+            self.assertEqual(summary(panel,NOW)['state'],'ok')
+            old=(Path(state)/'ranking.json').read_bytes()
+            def denied():
+                raise RuntimeError('SECRET')
+            self.assertEqual(cycle(state,denied,lambda:NOW,export_dir=panel)['state'],'failed')
+            self.assertEqual(summary(panel,NOW)['state'],'scan_not_ok')
+            self.assertEqual((Path(state)/'ranking.json').read_bytes(),old)
+            self.assertNotIn('SECRET',p.read_text())
+
+    def test_bad_export_dir_fails_closed(self):
+        with tempfile.TemporaryDirectory() as state:
+            called=[]
+            s=cycle(state,lambda:called.append(True),lambda:NOW,
+                    export_dir=Path(state)/'missing')
+            self.assertEqual(s['state'],'failed')
+            self.assertEqual(called,[])
