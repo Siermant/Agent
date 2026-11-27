@@ -1,6 +1,7 @@
 import unittest
 import tempfile
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from datetime import datetime,timedelta,timezone
 from unittest.mock import patch
@@ -45,7 +46,7 @@ class GlobalInitialTests(unittest.TestCase):
             later=open_initial(tmp,{}, {},lambda:NOW+timedelta(days=1))
             self.assertEqual(later['state'],'already_opened')
             self.assertEqual(p.read_bytes(),original)
-            with sqlite3.connect(p) as db:
+            with closing(sqlite3.connect(p)) as db:
                 self.assertEqual(db.execute('SELECT count(*) FROM fills').fetchone()[0],4)
                 self.assertEqual(db.execute('SELECT count(*) FROM initial_receipt').fetchone()[0],1)
     def test_rollback_if_second_fill_fails(self):
