@@ -5,7 +5,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from .market import fetch
-from .paper_live import load_context, UNIVERSE
+from .paper_live import load_context, configured_universe
+from functools import partial
+from .backtest import WARMUP
 
 
 def resources(data, cgroup=Path('/sys/fs/cgroup')):
@@ -25,17 +27,19 @@ def resources(data, cgroup=Path('/sys/fs/cgroup')):
             'cpu_usage_usec_total': cpu_usec, 'disk_free_bytes': disk.free, 'disk_total_bytes': disk.total}
 
 
-def check(quote_source=fetch, context_source=load_context, clock=None):
+def check(quote_source=fetch, context_source=None, clock=None, universe=None):
+    universe = configured_universe() if universe is None else tuple(universe)
+    context_source = context_source if context_source is not None else partial(load_context, universe=universe)
     clock = clock or (lambda: datetime.now(timezone.utc))
     result = {'real_trading': False, 'checks': {}}
     for name, func in (('history_and_nbp', lambda: context_source(clock().date())), ('current_quotes', quote_source)):
         try:
             value = func()
-            if name == 'current_quotes' and not set(UNIVERSE) <= {r[0] for r in value}:
+            if name == 'current_quotes' and not set(universe) <= {r[0] for r in value}:
                 raise ValueError('Incomplete quotes')
             if name == 'history_and_nbp':
                 day, rate, closes = value
-                if not 0 < (clock().date()-day).days <= 7 or rate <= 0 or set(closes) != set(UNIVERSE) or any(len(v)!=20 for v in closes.values()):
+                if not 0 < (clock().date()-day).days <= 7 or rate <= 0 or set(closes) != set(universe) or any(len(v)!=WARMUP for v in closes.values()):
                     raise ValueError('Incomplete context')
             result['checks'][name] = {'ok': True}
         except Exception as exc:
