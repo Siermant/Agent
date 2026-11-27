@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily GTA equity research
+
+[Timer]
+OnCalendar=*-*-* 07:15:00 Europe/Warsaw
+Persistent=true
+Unit=gta-equity-research.service
+
+[Install]
+WantedBy=timers.target
