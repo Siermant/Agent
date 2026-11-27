@@ -131,3 +131,28 @@ No raw quotes printed, no persistent ledger or orders. The clock and quote
 endpoints still need actual VM validation during regular market hours.
 Reference: https://docs.alpaca.markets/us/reference/legacyclock ;
 https://docs.alpaca.markets/us/reference/stocklatestquotes-1 .
+
+## Isolated initial Global paper portfolios (development)
+global_paper_initial --apply-paper performs a fresh quote qualification,
+regenerates the research plan, then refreshes the quote snapshot before
+one-time local simulated opening. Uses 26 stock candidates, all quotes
+required, prior-day NBP USD reference conversion, full shares, displayed
+ask size cap for each independent alternative. Commission 10 bps min PLN 2,
+additional 10 bps slippage on ask (actual displayed spread already included).
+These are scenario costs, not an executable FX or broker price. No benchmark
+purchase until suitable broad UCITS ETF data. Existing risk gates remain.
+StateDirectory must be gta-global-paper. All initial fills are written to a
+temporary SQLite ledger in that state directory; checkpoint and consolidate
+before an exclusive hard-link publishes global-paper.db. Receipt included
+in the same DB. Repeated invocation reports already_opened, not new trades.
+An error before publication leaves no published ledger; a crash after
+publication may be reported as failure but the next start reads the receipt.
+Never point this at the live crypto ledger. The shared Ledger initializes
+all 15 accounts in the isolated database, but only five Global accounts are
+used and exposed. No periodic marks, rebalance, corporate-action treatment,
+live orders, or dashboard integration yet. Do not delete the database to
+retry; treat this as a single experiment. Market closed is not readiness.
+Source: https://docs.alpaca.markets/us/reference/stocklatestquotesingle-1
+documents size in shares after November 3, 2025. Quote conditions and full
+market depth are not independently verified. Actual IEX/clock endpoint
+qualification and first paper opening on VM are still pending.
