@@ -39,7 +39,9 @@ def client(key, secret):
     return request
 
 
-def history(request, expected, adjustment):
+def history(request, expected, adjustment, *, with_volume=False):
+    if with_volume and adjustment!='raw':
+        raise ValueError('Volume research requires raw bars')
     if adjustment not in ('raw','split,dividend'):
         raise ValueError('Unsupported adjustment')
     days = [d for _,d in expected]
@@ -69,7 +71,13 @@ def history(request, expected, adjustment):
                 o,h,l,c=(positive(str(item[k])) for k in ('o','h','l','c'))
                 if not l<=min(o,c)<=max(o,c)<=h:
                     raise ValueError('Invalid OHLC')
-                found[key]=c
+                if with_volume:
+                    v=item['v']
+                    if type(v) is not int or not 0<v<=10**12:
+                        raise ValueError('Invalid bar volume')
+                    found[key]=(c,v,positive(str(item['vw'])))
+                else:
+                    found[key]=c
         token=payload['next_page_token']
         if token is None:
             if set(found)!=expected:
