@@ -85,3 +85,27 @@ Calendar verification and point-in-time corporate actions are still absent.
 This is a retrospective screen, not a backtest or trade recommendation.
 Liquidity, costs, sector exposure and instrument eligibility not yet
 evaluated; they must be added before use for portfolio decisions.
+
+## Hypothetical Global initial allocation
+```sh
+python3 -m global_agent.equity_rank --input equity_research.json > ranking.json
+python3 -m global_agent.global_plan --ranking ranking.json --assumptions assumptions.json --cohort 0
+```
+One comparable cohort per run, five separate hypothetical accounts of
+50,000 PLN, no existing holdings. A-D use different transparent momentum/risk
+weights; positive scores only. D is a fixed heuristic, not AI. Position
+budget 4.5% of starting capital including estimated entry costs; exposure
+targets 40/60/80/80%, minimum 20% cash, proposed 20% per supplied sector label.
+E is a separately identified ETF benchmark, exempt from active allocation
+limits but subject to assumed liquidity and cash. No share quantities or
+executable orders. Assumptions JSON must explicitly supply research_only=true,
+commission_bps, spread_slippage_bps, minimum_fee_pln, minimum_adv_pln,
+max_adv_fraction, benchmark_id, instruments keyed by listing ID with
+research_eligible, sector, adv_pln and optional benchmark_eligible.
+No automatic inference of ADV or sector: missing metadata excluded.
+Notional amounts are hypothetical, not broker quotes; costs cover entry
+only; liquidity and sector labels are unverified, no ETF look-through.
+No ledger updates, no historical portfolio simulation or live trading.
+Next: validated metadata/volume data and independent calendar source,
+then paper fills with executable quotes, existing holdings, and ledger risk
+checks. IKE eligibility and EU ETF selection remain separate.
