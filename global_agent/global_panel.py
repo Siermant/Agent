@@ -30,6 +30,7 @@ def export_panel(directory,status,valuation=None):
     out={'status':select(status,tuple(FLAGS)+('state','checked_utc'))}
     if valuation is not None:
         out['valuation']=dict(select(valuation,tuple(FLAGS)+('state','checked_utc','valued_at','fx_date','quote_source')),
+            **{k:valuation[k] for k in ('quote_delay_seconds','quote_observed_from_utc','quote_observed_to_utc') if k in valuation},
             accounts=[dict(select(r,FIELDS),positions=[select(p,('ticker','quantity','value_pln')) for p in r['positions']]) for r in valuation['accounts']],
             history=[select(r,('at','equity_pln')) for r in valuation['history']],
             fills=[select(r,('account','ticker','quantity','price_pln','fee_pln','at','side')) for r in valuation['fills']])
@@ -95,7 +96,18 @@ def summary(directory,now=None):
         v=report['valuation']
         flags(v)
         at=moment(v['valued_at'])
-        if v['state']!='valued' or v['quote_source']!='alpaca_iex_latest' or not at<=checked or moment(v['checked_utc'])!=at:
+        source=v['quote_source']
+        delays={'alpaca_iex_latest':0,'alpaca_delayed_sip_latest':900}
+        if source not in delays or v.get('quote_delay_seconds',0)!=delays[source]:
+            raise ValueError('Invalid quote source or delay')
+        delay=delays[source]
+        observed={}
+        if delay or 'quote_observed_from_utc' in v or 'quote_observed_to_utc' in v:
+            lo=moment(v['quote_observed_from_utc']);hi=moment(v['quote_observed_to_utc'])
+            if not at-timedelta(seconds=delay+60)<=lo<=hi<=at-timedelta(seconds=delay):
+                raise ValueError('Invalid observed quote range')
+            observed={'quote_observed_from_utc':lo.isoformat(),'quote_observed_to_utc':hi.isoformat()}
+        if v['state']!='valued' or not at<=checked or moment(v['checked_utc'])!=at:
             raise ValueError('Invalid valuation chronology')
         if state=='valued' and at!=checked:
             raise ValueError('Valuation/status mismatch')
@@ -143,7 +155,7 @@ def summary(directory,now=None):
         fx=datetime.strptime(v['fx_date'],'%Y-%m-%d').date()
         if not timedelta(0)<at.date()-fx<=timedelta(days=8):
             raise ValueError('Invalid FX date')
-        return dict(out,valued_at=at.isoformat(),fx_date=fx.isoformat(),
+        return dict(out,valued_at=at.isoformat(),fx_date=fx.isoformat(),quote_source=source,quote_delay_seconds=delay,**observed,
                     fresh=state=='valued' and now-at<=timedelta(minutes=10),
                     accounts=sorted(accounts,key=lambda r:r['account']),history=history,fills=fills)
     except (OSError,ValueError,KeyError,TypeError,ArithmeticError,AttributeError):
@@ -188,7 +200,10 @@ def render_global(s):
     def table(headers,rows):
         return '<div class="scroll"><table><thead><tr>'+''.join('<th>'+escape(x)+'</th>' for x in headers)+'</tr></thead><tbody>'+''.join('<tr>'+''.join('<td>'+escape(str(x))+'</td>' for x in r)+'</tr>' for r in rows)+'</tbody></table></div>'
     if s.get('accounts'):
-        out+=['<p>',escape(s['valued_at']), ' · ', 'Aktualna' if s['fresh'] else 'Ostatnia / nieaktualna',
+        if s.get('quote_delay_seconds')==900:
+            out+=['<p><strong>Delayed SIP — dane opóźnione o 15 minut. Symulacja po cenach historycznych, nie wykonanie rynkowe.</strong></p>',
+                  '<p>Czas notowań UTC: ',escape(s['quote_observed_from_utc']),' — ',escape(s['quote_observed_to_utc']),'</p>']
+        out+=['<p>',escape(s['valued_at']), ' · ', 'Raport aktualny' if s['fresh'] else 'Ostatnia / nieaktualna',
               ' · NBP ',escape(s['fx_date']),'</p>',
               table(['Portfel','Gotówka PLN','Wartość PLN','Zysk/strata PLN','Zwrot %','Obsunięcie %','Ryzyko'],
                     [[r['account'],r['cash_pln'],r['equity_pln'],r['pnl_pln'],r['return_pct'],r['drawdown_pct'],'Blokada' if r['risk_blocked'] else 'OK'] for r in s['accounts']]),
