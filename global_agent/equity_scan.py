@@ -21,16 +21,21 @@ def write(path, fields, data):
         w.writerows(data)
 
 
-def scan(calendar_request, bar_request, fx_request=None, clock=None):
+def scan(calendar_request, bar_request, fx_request=None, clock=None, universe=None):
+    universe = universe if universe is not None else {mic:{s:'etf' if s=='QQQ' else 'stock' for s in symbols} for mic,symbols in VENUES.items()}
+    if not universe or not set(universe)<=set(VENUES) or not 1<=sum(len(x) for x in universe.values())<=30:
+        raise ValueError('Invalid research universe')
+    if len({s for items in universe.values() for s in items})!=sum(len(x) for x in universe.values()):
+        raise ValueError('Duplicate ticker')
     clock=clock or (lambda:datetime.now(timezone.utc))
     now=clock()
     end=now.astimezone(alpaca_data.NY).date()-timedelta(days=1)
     start=end-timedelta(days=119)
     manifest, sessions=[],[]
-    for mic,symbols in VENUES.items():
+    for mic,symbols in universe.items():
         calendar=parse_calendar(calendar_request(mic,start,end),mic,start,end,now)
         sessions.extend((mic,str(d),cl.isoformat()) for d,cl in sorted(calendar.items()))
-        manifest.extend(('alpaca:'+mic+':'+s,s,mic,'etf' if s=='QQQ' else 'stock') for s in symbols)
+        manifest.extend(('alpaca:'+mic+':'+s,s,mic,kind) for s,kind in sorted(symbols.items()))
     with tempfile.TemporaryDirectory(prefix='gta-equity-scan-') as t:
         root=Path(t)
         m,c,b,f=(root/x for x in ('manifest.csv','calendar.csv','bars.csv','fx.csv'))
