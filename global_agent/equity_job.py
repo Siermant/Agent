@@ -1,0 +1,72 @@
+"""Scheduled local equity research only. Reads systemd credentials, never orders."""
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.error import HTTPError
+from .equity_scan import scan
+from .equity_preflight import calendar_client
+from .alpaca_data import client
+from .research_cycle import publish
+
+
+def credentials(directory):
+    path=Path(directory)/'alpaca-paper.json'
+    with path.open(encoding='utf-8') as f:
+        raw=f.read(4097)
+    if len(raw)>4096:
+        raise ValueError('Oversized credential')
+    obj=json.loads(raw)
+    if set(obj)!= {'key','secret'}:
+        raise ValueError('Invalid credential fields')
+    for value in obj.values():
+        if not isinstance(value,str) or not value or any(c.isspace() for c in value):
+            raise ValueError('Invalid credential')
+    return obj['key'],obj['secret']
+
+
+def cycle(state_dir, fetch, clock=None):
+    clock=clock or (lambda:datetime.now(timezone.utc))
+    root=Path(state_dir)
+    started=clock().isoformat()
+    status={'research_only':True,'real_trading':False,'eligible_for_orders':False,
+            'started_utc':started,'state':'running'}
+    publish(status,root/'status.json')
+    try:
+        result=fetch()
+        if (result.get('research_only') is not True or result.get('real_trading') is not False
+                or result.get('eligible_for_orders') is not False or result.get('state')!='ranked'):
+            raise ValueError('Incomplete or invalid ranking')
+        count=sum(len(c['instruments']) for c in result['cohorts'])
+        if count!=result['expected_instruments'] or count<1:
+            raise ValueError('Incomplete instrument set')
+        result=dict(result,scan_mode='scheduled_read_only')
+        publish(result,root/'ranking.json')
+        status.update(state='ok',instruments=count,cohorts=len(result['cohorts']),
+                      ranking_generated_utc=result['generated_utc'])
+    except Exception as exc:
+        status.update(state='failed',error_type=type(exc).__name__)
+        if isinstance(exc,HTTPError):
+            status['http_status']=exc.code
+    status['finished_utc']=clock().isoformat()
+    publish(status,root/'status.json')
+    return status
+
+
+def main():
+    try:
+        root=Path(os.environ['STATE_DIRECTORY'])
+        def fetch():
+            key,secret=credentials(os.environ['CREDENTIALS_DIRECTORY'])
+            return scan(calendar_client(key,secret),client(key,secret))
+        status=cycle(root,fetch)
+        print(json.dumps(status,allow_nan=False))
+    except Exception as exc:
+        print(json.dumps({'state':'failed','error_type':type(exc).__name__}))
+        raise SystemExit(1)
+    if status['state']!='ok':
+        raise SystemExit(1)
+
+
+if __name__=='__main__':
+    main()
