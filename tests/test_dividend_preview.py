@@ -13,7 +13,7 @@ class DividendPreviewTests(unittest.TestCase):
             receipt=open_initial(tmp,plan(),snapshot(),lambda:NOW)
             ordinary=dict(symbol='WMT',ex_date='2026-12-01',payable_date='2026-12-15',process_date='2026-12-15')
             report=scan(lambda _:payload({'cash_dividends':[
-                event(**ordinary),event(**ordinary,currency=''),event(**ordinary,currency='',special=True),
+                event(**ordinary),event(**dict(ordinary,ex_date='2026-12-02'),currency=''),event(**dict(ordinary,ex_date='2026-12-03'),currency='',special=True),
                 event(symbol='WMT',ex_date='2026-11-27',payable_date='2026-12-15',process_date='2026-12-15')
             ]}),['WMT'],date(2026,11,20),date(2026,12,20))
             r=preview(receipt,report,NOW)
@@ -31,3 +31,13 @@ class DividendPreviewTests(unittest.TestCase):
             r=preview(receipt,report,NOW)
             self.assertEqual(r['blocked_symbols'],['WMT'])
             self.assertEqual(r['accounts']['A:global']['explicit_usd_gross'],'0')
+
+    def test_overlapping_provider_ids_not_summed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            receipt=open_initial(tmp,plan(),snapshot(),lambda:NOW)
+            ordinary=dict(symbol='WMT',ex_date='2026-12-01',payable_date='2026-12-15',process_date='2026-12-15')
+            report=scan(lambda _:payload({'cash_dividends':[event(**ordinary),event(**ordinary,currency='')]}),['WMT'],date(2026,11,20),date(2026,12,20))
+            r=preview(receipt,report,NOW)
+            self.assertEqual(r['overlapping_cash_events'],1)
+            self.assertEqual(r['accounts']['A:global'],{'explicit_usd_gross':'0','assumed_usd_gross':'0'})
+            self.assertTrue(all(e['state']=='overlapping_events_review_required' for e in r['events']))
