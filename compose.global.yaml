@@ -1,0 +1,11 @@
+services:
+  agent:
+    environment:
+      GTA_GLOBAL_REPORT_DIR: /global-report
+    volumes:
+      - type: bind
+        source: /var/cache/gta-global-export
+        target: /global-report
+        read_only: true
+        bind:
+          create_host_path: false
