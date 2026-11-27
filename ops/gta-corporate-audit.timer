@@ -1,0 +1,12 @@
+[Unit]
+Description=GTA daily corporate-action audit
+
+[Timer]
+OnCalendar=*-*-* 07:35:00 Europe/Warsaw
+OnCalendar=*-*-* 14:00:00 Europe/Warsaw
+Persistent=true
+AccuracySec=30s
+Unit=gta-corporate-audit.service
+
+[Install]
+WantedBy=timers.target
