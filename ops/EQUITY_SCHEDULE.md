@@ -59,3 +59,18 @@ retain previous directory, switch checkout, run service once and verify
 success and 28 instruments before restarting timer. Restore previous code
 if validation fails; retained status/ranking may reflect the failed attempt
 until previous service successfully reruns. No live broker orders.
+
+## Dashboard integration (staged, not installed)
+Operator confirmed successful 28-instrument daily service update, 127/127
+VM tests, 09:44:27 UTC on 2026-11-27. The local HTTP dashboard and status
+API now support optional GTA_EQUITY_REPORT_DIR. Reader validates flags,
+counts, timestamp agreement, bounded size and numeric metrics; reports
+older than 30 hours are stale. This limit concerns report generation, not
+the age of the latest market session. HTML is escaped. No rank data
+included in remote diagnostics by this change.
+No Compose changes yet. The production systemd state directory is private
+and belongs to the independent research job. Do not weaken its permissions
+or mount /etc/gta-secrets. Next: publish a separate limited read-only
+dashboard export with an atomic snapshot and explicit stale/failure state,
+then review the Compose mount, qualify a new image and activate with rollback.
+The optional reader remains disconnected until that bridge is installed.
