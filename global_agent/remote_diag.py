@@ -105,6 +105,9 @@ def snapshots(state, decisions, now):
               'paper_state':paper['state'] if paper['state'] in ('ok','waiting','disabled','feed_unavailable','incomplete_quotes','day_changed') else 'blocked',
               'backup_state':state.get('backup',{}).get('state','waiting'),
               'backup_day':state.get('backup',{}).get('day')}
+    universe = state.get('crypto_universe')
+    if isinstance(universe,list) and set(universe) <= {'BTC-EUR','ETH-EUR','SOL-EUR','XRP-EUR','ADA-EUR','DOGE-EUR','LINK-EUR','AVAX-EUR'}:
+        status['crypto_universe'] = universe
     resource_keys = ('memory_bytes','memory_limit_bytes','cpu_usage_usec_total','disk_free_bytes','disk_total_bytes')
     status['resources'] = {k:state.get('resources',{}).get(k) for k in resource_keys}
     keys = ('account','initial_pln','cash_pln','equity_pln','valued_at','fresh','return_pct','current_drawdown_pct','fees_pln','fills','turnover_pln')
@@ -115,7 +118,7 @@ def snapshots(state, decisions, now):
              'decisions':[{k:r[k] for k in ('account','result','count')} for r in decisions],
              'recent_executions':[{k:r[k] for k in ('account','symbol','side','quantity','price_pln','fee_pln','at')} for r in state.get('recent_executions',[])[:200]]}
     # Include health changes in the slot to transmit transitions without waiting 15 min.
-    health = (status['market_healthy'],status['paper_state'],status['backup_state'])
+    health = (status['version'],status['market_healthy'],status['paper_state'],status['backup_state'],tuple(status.get('crypto_universe',[])))
     return {'status':(str(int(now.timestamp())//900)+':'+str(health),status),
             'hourly':(now.strftime('%Y-%m-%dT%H'),hourly), 'daily':(now.date().isoformat(),daily)}
 
