@@ -109,3 +109,28 @@ No ledger updates, no historical portfolio simulation or live trading.
 Next: validated metadata/volume data and independent calendar source,
 then paper fills with executable quotes, existing holdings, and ledger risk
 checks. IKE eligibility and EU ETF selection remain separate.
+
+## Integrated research cycle
+Offline:
+```sh
+python3 -m global_agent.research_cycle --calendar calendar.csv --bars bars.csv --fx fx.csv --assumptions assumptions.json --output research.json
+```
+With a separately authorized Alpaca data credential in the local environment:
+```sh
+python3 -m global_agent.research_cycle --calendar calendar.csv --alpaca-manifest instruments.csv --assumptions assumptions.json --output research.json
+```
+The second mode downloads IEX daily bars and NBP reference FX into a temporary
+directory, validates the dataset, ranks instruments and builds hypothetical
+initial allocations. Raw downloads are removed after the cycle. The output
+is research-only and never goes to the live ledger or diagnostic repository.
+Use a dedicated research directory for inputs/output, not the service volume.
+A single comparable cohort can be selected with --cohort N (zero based).
+If there are multiple cohorts and none is selected, publish the ranking only
+with state cohort_selection_required and exit code 2; no duplicate capital
+allocation across venues. Insufficient history produces no_rankable_instruments
+and exit code 2. Input errors exit 1 without publishing a new result;
+consumers must check generated_utc and state rather than infer freshness from
+file existence. Output is replaced atomically on successful computation.
+The provider path still requires real API validation and a verified calendar,
+metadata and cost/liquidity assumptions. Tests use synthetic data or mocks,
+not actual market data. Not a scheduled process, no execution or deployment.
