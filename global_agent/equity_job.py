@@ -8,6 +8,7 @@ from .equity_scan import scan
 from .equity_preflight import calendar_client
 from .alpaca_data import client
 from .research_cycle import publish
+from .equity_export import export
 
 
 def credentials(directory):
@@ -25,7 +26,7 @@ def credentials(directory):
     return obj['key'],obj['secret']
 
 
-def cycle(state_dir, fetch, clock=None):
+def cycle(state_dir, fetch, clock=None, export_dir=None):
     clock=clock or (lambda:datetime.now(timezone.utc))
     root=Path(state_dir)
     started=clock().isoformat()
@@ -33,6 +34,8 @@ def cycle(state_dir, fetch, clock=None):
             'started_utc':started,'state':'running'}
     publish(status,root/'status.json')
     try:
+        if export_dir is not None:
+            export(export_dir,status)
         result=fetch()
         if (result.get('research_only') is not True or result.get('real_trading') is not False
                 or result.get('eligible_for_orders') is not False or result.get('state')!='ranked'):
@@ -49,6 +52,12 @@ def cycle(state_dir, fetch, clock=None):
         if isinstance(exc,HTTPError):
             status['http_status']=exc.code
     status['finished_utc']=clock().isoformat()
+    if export_dir is not None:
+        try:
+            export(export_dir,status,result if status['state']=='ok' else None)
+        except Exception as exc:
+            status['panel_export_error']=type(exc).__name__
+            status['state']='failed'
     publish(status,root/'status.json')
     return status
 
@@ -91,7 +100,7 @@ def main():
             key,secret=credentials(os.environ['CREDENTIALS_DIRECTORY'])
             from .equity_expand import asset_client
             return expanded_scan(asset_client(key,secret),calendar_client(key,secret),client(key,secret))
-        status=cycle(root,fetch)
+        status=cycle(root,fetch,export_dir=os.getenv('CACHE_DIRECTORY'))
         print(json.dumps(status,allow_nan=False))
     except Exception as exc:
         print(json.dumps({'state':'failed','error_type':type(exc).__name__}))
