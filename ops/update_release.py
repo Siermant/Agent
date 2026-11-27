@@ -121,6 +121,23 @@ def activate(candidate, version, archive, rollback_tag, old, before, run=command
         raise RuntimeError('Update failed; previous image restarted. Inspect logs and backup.')
 
 
+def legacy_compose_guard(root=ROOT, environ=None):
+    """The legacy updater must not recreate a service with missing overlays."""
+    environ=os.environ if environ is None else environ
+    expected='compose.yaml:compose.diagnostics.yaml'
+    values=[]
+    envfile=Path(root)/'.env'
+    if envfile.exists():
+        for line in envfile.read_text().splitlines():
+            if re.match(r'^\s*(?:export\s+)?COMPOSE_FILE\s*=',line):
+                values.append(line.split('=',1)[1].strip())
+    if len(values)>1 or any(v!=expected for v in values) or environ.get('COMPOSE_FILE',expected)!=expected:
+        raise RuntimeError('Legacy updater cannot preserve additional Compose overlays; use a release-specific migration')
+    if any((Path(root)/name).exists() or (Path(root)/name).is_symlink()
+           for name in ('compose.equity.yaml','compose.global.yaml')):
+        raise RuntimeError('Additional report overlays detected; legacy updater disabled')
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--approved-sha',type=approved_sha)
@@ -132,6 +149,7 @@ def main():
         p.error('Run as root from /opt/global-trading-agent on VM 106')
     if a.apply and not (a.approved_sha and a.expected_version and a.schema_compatible):
         p.error('Apply requires full approved SHA, version and explicit schema compatibility')
+    legacy_compose_guard()
     os.umask(0o077)
     BASE.mkdir(mode=0o700,exist_ok=True)
     with (BASE/'.update.lock').open('a') as lock:
