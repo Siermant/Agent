@@ -74,3 +74,23 @@ or mount /etc/gta-secrets. Next: publish a separate limited read-only
 dashboard export with an atomic snapshot and explicit stale/failure state,
 then review the Compose mount, qualify a new image and activate with rollback.
 The optional reader remains disconnected until that bridge is installed.
+
+## v0.14 panel bridge — staging
+Research unit adds CacheDirectory=gta-equity-export (0755), with an
+atomic single panel.json export (0644). The private StateDirectory and
+credential permissions are unchanged. The export contains only allowed
+status fields, instrument identifiers, ranking metrics and session labels;
+no raw bars, credentials or ledger. On scan start/failure publish a
+status-only snapshot. An export I/O failure may leave an older snapshot;
+the reader expires reports after 30 hours. Systemd DynamicUser normally
+places the cache under /var/cache/private with a symlink; the Docker daemon
+must resolve /var/cache/gta-equity-export and UID 10001 must be able to read
+the mounted panel.json. Verify this on the actual VM.
+Optional compose.equity.yaml binds only this export directory read-only,
+never private state or /etc/gta-secrets. Existing image-only update
+tool is deliberately not used to change Compose. Stage host export first,
+then verify candidate offline and mount in a separate container. A
+production Compose migration and rollback procedure are still required.
+No current trading, data sharing with remote diagnostics, or global
+ledger changes. Provider data remains limited to the qualified 28 US
+instruments; calendar independence and trade eligibility remain unverified.
