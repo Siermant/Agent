@@ -8,6 +8,7 @@ import json
 import os
 import sqlite3
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D, ROUND_DOWN, ROUND_HALF_UP
 from pathlib import Path
@@ -16,7 +17,7 @@ from contextlib import closing
 from .ledger import Ledger, CAPITALS, EXPOSURE
 from .equity_data import moment
 from .equity_job import credentials, QUALIFIED
-from .equity_quotes import clients, qualify, SYMBOLS
+from .equity_quotes import clients, qualify, market_clock, SYMBOLS
 from .global_preview import preview, SECTORS
 from .equity_expand import asset_client
 from .equity_preflight import calendar_client
@@ -111,7 +112,38 @@ def read_existing(path):
     return dict(result,state='already_opened')
 
 
-def open_initial(root,plan,snapshot,clock=None):
+MIN_QUOTED_BUDGET=D('.75')
+
+def selected_ids(budgets):
+    return {k for b in budgets.values() for k in b}
+
+def quote_selection(budgets,snapshot,allow_unquoted_cash=False):
+    required={IDS[k] for k in selected_ids(budgets)}
+    supplied=set(snapshot['quotes'])
+    if not required or not supplied<=set(SYMBOLS):
+        raise ValueError('Invalid quote selection')
+    if snapshot.get('state')=='qualified' and snapshot.get('ready') is True:
+        if not required<=supplied:
+            raise ValueError('Missing selected quote')
+        return required,set()
+    if not allow_unquoted_cash or snapshot.get('state')!='incomplete_quotes' or snapshot.get('ready') is not False:
+        raise ValueError('Fresh qualified snapshot required')
+    missing=required-supplied
+    rejected=snapshot.get('rejected_symbols')
+    if (not missing or not isinstance(rejected,list) or set(rejected)!=missing
+        or len(rejected)!=len(missing) or not supplied<=required
+        or snapshot.get('valid_quotes')!=len(supplied)
+        or snapshot.get('expected_instruments')!=len(required)):
+        raise ValueError('Inconsistent partial snapshot')
+    # Coverage is measured against the fixed planned budget for each portfolio.
+    # Unquoted allocations are left in cash, never redistributed or substituted.
+    for b in budgets.values():
+        if b and sum((v for k,v in b.items() if IDS[k] in supplied),D(0))<sum(b.values())*MIN_QUOTED_BUDGET:
+            raise ValueError('Insufficient quoted allocation coverage')
+    return required,missing
+
+
+def open_initial(root,plan,snapshot,clock=None,*,allow_unquoted_cash=False):
     clock=clock or (lambda:datetime.now(timezone.utc))
     root=Path(root).resolve()
     if not root.is_dir():
@@ -123,20 +155,22 @@ def open_initial(root,plan,snapshot,clock=None):
             return read_existing(path)
         now=clock()
         budgets=validate(plan,now)
-        if (snapshot.get('ready') is not True or snapshot.get('market_open') is not True
+        if (snapshot.get('market_open') is not True
             or snapshot.get('research_only') is not True or snapshot.get('real_trading') is not False
-            or snapshot.get('eligible_for_orders') is not False or snapshot.get('state')!='qualified'
+            or snapshot.get('eligible_for_orders') is not False
             or snapshot.get('source')!='alpaca_iex_latest' or snapshot.get('fx_source')!='nbp_table_a_prior_day'
             or not timedelta(0)<=now-moment(snapshot['checked_utc'])<=timedelta(seconds=15)):
             raise ValueError('Fresh qualified snapshot required')
         close=moment(snapshot['session_close_utc'])
         if close-now<timedelta(seconds=90):
             raise ValueError('Too close to end of session')
-        if set(snapshot['quotes'])!=set(SYMBOLS):
-            raise ValueError('Missing quote')
+        required,missing=quote_selection(budgets,snapshot,allow_unquoted_cash)
         quotes={}
         sizes={}
-        for ident,s in IDS.items():
+        for ident in sorted(selected_ids(budgets)):
+            s=IDS[ident]
+            if s in missing:
+                continue
             q=snapshot['quotes'][s]
             bid,ask=number(q['bid_pln_reference']),number(q['ask_pln_reference'])
             stamp=moment(q['observed_at'])
@@ -154,6 +188,9 @@ def open_initial(root,plan,snapshot,clock=None):
             for account in ACCOUNTS:
                 ledger.mark(account,quotes)
                 for ident,budget in budgets[account].items():
+                    if IDS[ident] in missing:
+                        skipped.append({'account':account,'instrument_id':ident,'reason':'unqualified_quote_cash_retained','planned_budget_pln':str(budget)})
+                        continue
                     price=quotes[ident][1]*(1+SLIP)
                     qty=min(sizes[ident],max(D(0),((budget-MIN_FEE-CENT)/(price*(1+RATE))).to_integral_value(rounding=ROUND_DOWN)))
                     if qty<1:
@@ -172,6 +209,9 @@ def open_initial(root,plan,snapshot,clock=None):
                      'generated_utc':clock().isoformat(),'plan_generated_utc':plan['generated_utc'],
                      'fx_date':snapshot['fx_date'],'fx_reference_only':True,
                      'quote_source':'alpaca_iex_latest','cost_scenario':'10bps commission min 2 PLN + 10bps on ask',
+                     'quote_policy':'selected_plan_cash_fallback' if missing else 'selected_plan_all_qualified',
+                     'selected_symbols':sorted(required),'unquoted_symbols':sorted(missing),
+                     'minimum_quoted_budget_fraction':str(MIN_QUOTED_BUDGET) if allow_unquoted_cash else '1',
                      'fills':fills,'skipped':skipped,'accounts':account_summary(ledger)}
             with ledger.tx() as db:
                 db.execute('CREATE TABLE initial_receipt(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL)')
@@ -196,7 +236,8 @@ def open_initial(root,plan,snapshot,clock=None):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--apply-paper',action='store_true',required=True)
-    p.parse_args()
+    p.add_argument('--allow-unquoted-cash',action='store_true',help='Paper only: keep unquoted allocations in cash if each planned portfolio has at least 75% quoted budget')
+    args=p.parse_args()
     try:
         root=Path(os.environ['STATE_DIRECTORY'])
         if root.name!='gta-global-paper':
@@ -206,14 +247,40 @@ def main():
             r=read_existing(path)
         else:
             key,secret=credentials(os.environ['CREDENTIALS_DIRECTORY'])
-            ck,qt=clients(key,secret)
-            first=qualify(ck,qt)
-            if not first['ready']:
-                print(json.dumps(first,indent=2))
-                raise SystemExit(0 if first['state']=='market_closed' else 2)
+            ck,_=clients(key,secret)
+            opened,close,nxt=market_clock(ck(),datetime.now(timezone.utc))
+            if not opened:
+                print(json.dumps({'state':'market_closed','real_trading':False,'next_open':nxt.isoformat()}))
+                return
+            if close-datetime.now(timezone.utc)<timedelta(minutes=3):
+                print(json.dumps({'state':'session_ending','real_trading':False}))
+                return
             plan=preview(asset_client(key,secret),calendar_client(key,secret),client(key,secret))
-            snapshot=qualify(ck,qt,include_quotes=True)
-            r=open_initial(root,plan,snapshot)
+            budgets=validate(plan,datetime.now(timezone.utc))
+            selected=sorted({IDS[k] for k in selected_ids(budgets)})
+            if not selected:
+                raise ValueError('No planned allocations')
+            ck,qt=clients(key,secret,symbols=selected)
+            # Retry a bounded number of times with the same plan. Each snapshot
+            # is independently qualified; never merge stale quotes across attempts.
+            for attempt in range(5):
+                snapshot=qualify(ck,qt,include_quotes=True,symbols=selected,include_partial=args.allow_unquoted_cash)
+                if snapshot['ready']:
+                    break
+                print(json.dumps({k:v for k,v in snapshot.items() if k!='quotes'},allow_nan=False),flush=True)
+                if snapshot['state']!='incomplete_quotes':
+                    raise SystemExit(0 if snapshot['state']=='market_closed' else 2)
+                if attempt<4:
+                    time.sleep(10)
+            if not snapshot['ready']:
+                if not args.allow_unquoted_cash:
+                    raise SystemExit(2)
+                try:
+                    quote_selection(budgets,snapshot,True)
+                except ValueError:
+                    print(json.dumps({'state':'insufficient_selected_coverage','real_trading':False}))
+                    raise SystemExit(2)
+            r=open_initial(root,plan,snapshot,allow_unquoted_cash=args.allow_unquoted_cash)
         print(json.dumps(r,indent=2,allow_nan=False))
     except Exception as exc:
         print(json.dumps({'state':'failed','error_type':type(exc).__name__}))
