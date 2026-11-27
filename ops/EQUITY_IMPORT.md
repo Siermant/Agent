@@ -134,3 +134,29 @@ file existence. Output is replaced atomically on successful computation.
 The provider path still requires real API validation and a verified calendar,
 metadata and cost/liquidity assumptions. Tests use synthetic data or mocks,
 not actual market data. Not a scheduled process, no execution or deployment.
+
+## Synthetic Global execution laboratory
+```sh
+python3 -m unittest discover -s tests -p test_global_sim.py -v
+python3 -m global_agent.global_sim --scenario scenario.json
+```
+The scenario must explicitly set synthetic_only=true, real_trading=false,
+commission_bps, slippage_bps, minimum_fee_pln and frames (1–370).
+Each frame contains at, targets_generated_at (strictly earlier than at),
+synthetic_quotes=true, quotes keyed by fixture: identifiers with bid, ask
+and observed_at, and targets for all five A:global through E:global
+accounts mapping fixture IDs to target PLN budgets. All prices are artificial.
+The laboratory uses a new temporary SQLite ledger for each run, whole-share
+sizing, reductions before purchases, explicit costs and the existing ledger
+risk gates. Benchmark E holds its initial purchase. It rejects stale quotes,
+missing quotes for held positions and unordered frames. No externally supplied
+database path, no modification of live portfolio or persistent test balances.
+Reports contain hypothetical executions, blocked attempts, equity history
+and final account state. This is a scenario laboratory, not a historical
+backtest, not a live equity paper runner, and not directly connected to
+research_cycle targets. Sector and liquidity assumptions are not independently
+enforced in this laboratory; scenario prices do not include actual exchange
+sessions, market depth, FX execution, corporate actions or tax accounting.
+Next gate: validate a real market data source and exchange calendars, then
+design separate paper execution with actual fresh bid/ask, instrument eligibility,
+persistent decisions and explicit compatibility/rollback plan.
