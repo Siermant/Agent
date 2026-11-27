@@ -5,6 +5,8 @@ No order calls, persistent credentials, ledger writes or published market data.
 import argparse
 import getpass
 import json
+import sys
+import warnings
 from datetime import datetime, date, timedelta, timezone
 from decimal import Decimal
 from urllib.error import HTTPError
@@ -48,7 +50,7 @@ def parse_calendar(payload,mic,start,end,now):
                 not op<cl<=now):
             raise ValueError('Invalid calendar session')
         sessions[d]=cl
-    if len(sessions)<61:
+    if len(sessions)<61 or (end-max(sessions)).days>5:
         raise ValueError('Insufficient completed sessions')
     return sessions
 
@@ -104,6 +106,9 @@ def main():
     p.add_argument('--prompt',action='store_true',required=True,
                    help='Enter paper-only credentials locally, without echo')
     p.parse_args()
+    if not sys.stdin.isatty():
+        p.error('Interactive terminal required; credentials must not be piped')
+    warnings.filterwarnings('error',category=getpass.GetPassWarning)
     try:
         key=getpass.getpass('Alpaca PAPER API key: ')
         secret=getpass.getpass('Alpaca PAPER secret: ')
