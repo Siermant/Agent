@@ -45,3 +45,17 @@ Run from separate root-owned qualification code, not the scheduled checkout,
 using a transient DynamicUser unit with LoadCredential. No changes to timer,
 no persistent ranking, no ledger access through application code, no orders.
 The expanded universe is not yet qualified against actual market data.
+
+## Qualified daily universe (operator output, 2026-11-27 09:39 UTC)
+28 of 30 candidates ranked successfully in 22.133 s; peak RAM 21.2 MiB
+(as reported by systemd). 14 XNAS, 14 XNYS. SPY and VT excluded due to
+unsupported venue calendars. No historical-series exclusions. The expanded
+daily job re-discovers asset metadata and requires exactly these listing
+memberships and exclusions. Changed venue, inactive asset, missing row,
+duplicate row or changed exclusion fails closed; retains previous ranking.
+No change to credentials, timer, service unit or ledger. Run full tests on
+staged root-owned checkout before changing code. Stop timer and service,
+retain previous directory, switch checkout, run service once and verify
+success and 28 instruments before restarting timer. Restore previous code
+if validation fails; retained status/ranking may reflect the failed attempt
+until previous service successfully reruns. No live broker orders.
