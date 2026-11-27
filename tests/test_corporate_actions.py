@@ -51,3 +51,21 @@ class CorporateActionTests(unittest.TestCase):
     def test_incomplete(self):
         r=scan(lambda _:payload({'cash_dividends':[event(ex_date=None)]}),['AAPL'],START,END)
         self.assertEqual(r['events'][0]['state'],'manual_review_required')
+
+    def test_diagnostics_preserve_ambiguous_currency(self):
+        e=event(currency='')
+        e['cusip']='PRIVATE-FIXTURE'
+        r=scan(lambda _:payload({'cash_dividends':[e]}),['AAPL'],START,END)
+        v=r['events'][0]
+        self.assertEqual(v['currency_status'],'empty')
+        self.assertEqual(v['reported_rate'],'0.25')
+        self.assertNotIn('rate_usd',v)
+        self.assertNotIn('cusip',v)
+        self.assertEqual(r['review_reason_counts'],{'currency_not_explicit_usd':1})
+        self.assertFalse(r['accounting_enabled'])
+    def test_multiple_reasons(self):
+        e=event(special=True,rate=None)
+        del e['currency']
+        r=scan(lambda _:payload({'cash_dividends':[e]}),['AAPL'],START,END)
+        self.assertEqual(r['events'][0]['currency_status'],'missing')
+        self.assertEqual(set(r['review_reason_counts']),{'currency_not_explicit_usd','special_not_explicit_false','invalid_rate'})
