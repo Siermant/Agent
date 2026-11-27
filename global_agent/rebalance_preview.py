@@ -112,6 +112,8 @@ def fee(value):
     return max(MIN_FEE,(value*RATE).quantize(CENT,rounding=ROUND_HALF_UP))
 
 def propose(receipt,holdings,plan,snapshot,blocks,now):
+    if receipt.get('quote_source')!='alpaca_iex_latest':
+        raise ValueError('Delayed SIP rebalance research not yet qualified')
     budgets=validate(plan,now)
     if (snapshot.get('ready') is not True or snapshot.get('market_open') is not True
         or snapshot.get('state')!='qualified' or snapshot.get('source')!='alpaca_iex_latest'
@@ -247,6 +249,9 @@ def main():
         if (receipt.get('one_time_initial_only') is not True or receipt.get('rebalance_enabled') is not False
                 or receipt.get('simulated') is not True):
             raise ValueError('Expected initial-only experiment')
+        if receipt.get('quote_source')!='alpaca_iex_latest':
+            print(json.dumps(dict(FLAGS,state='delayed_rebalance_not_qualified')))
+            return
         now=datetime.now(timezone.utc)
         if now-moment(receipt['generated_utc'])<COOLDOWN:
             print(json.dumps(dict(FLAGS,state='cooldown',earliest_review_utc=(moment(receipt['generated_utc'])+COOLDOWN).isoformat())))
