@@ -31,11 +31,17 @@ class GlobalMigrationTests(unittest.TestCase):
             fixture(tmp)
             s=summary(tmp)
             self.assertEqual(s['state'],'valued')
+            self.assertEqual(s['quote_source'],'alpaca_delayed_sip_latest')
+            self.assertEqual(s['quote_delay_seconds'],900)
             self.assertEqual(sum(a['fills'] for a in s['accounts']),0)
             state={'real_trading':False,'version':'0.15.0-dev','mode':'crypto-paper',
                    'accounts':[{'account':p+':'+k,'fills':0} for p in 'ABCDE' for k in ('crypto','global','ike')],
                    'market':{'healthy':True},'remote':{'state':'ok'},'strategies_running':True,
                    'equity_research':{'state':'ok','instruments':28},'global_paper':s}
+            with self.assertRaisesRegex(RuntimeError,'Global valuation'):m.panel_ok(state,0,'0.15.0-dev')
+            s['accounts'][0]['fills']=1
+            m.panel_ok(state,0,'0.15.0-dev')
+            s.update(quote_source='alpaca_iex_latest',quote_delay_seconds=0)
             with self.assertRaisesRegex(RuntimeError,'Global valuation'):m.panel_ok(state,0,'0.15.0-dev')
     def test_rollback_and_success(self):
         from unittest.mock import patch
