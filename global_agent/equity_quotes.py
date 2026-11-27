@@ -58,7 +58,7 @@ def market_clock(payload,now):
     return opened,nxt_close,nxt_open
 
 
-def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quotes=False,symbols=None):
+def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quotes=False,symbols=None,include_partial=False):
     selected=universe(symbols)
     clock=clock or (lambda:datetime.now(timezone.utc))
     first=clock_request()
@@ -90,18 +90,30 @@ def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quo
         raise ValueError('Unexpected quote universe')
     if payload.get('currency','USD')!='USD':
         raise ValueError('Unexpected currency')
+    if include_partial and not include_quotes:
+        raise ValueError('Partial quotes require explicit internal quote output')
     accepted={}
     rejected=[]
+    reasons={}
+    diagnostics={}
     for s in selected:
+        reason='missing_quote'
         try:
             q=quotes[s]
+            reason='invalid_timestamp'
             at=moment(q['t'])
+            diagnostics[s]={'age_seconds':round((now-at).total_seconds(),3)}
+            reason='invalid_price'
             bid,ask=positive(str(q['bp'])),positive(str(q['ap']))
+            reason='invalid_displayed_size'
             bs,az=q['bs'],q['as']
             if type(bs) is not int or type(az) is not int or not 0<min(bs,az)<=max(bs,az)<=2**32-1:
                 raise ValueError('Invalid displayed size')
+            reason='stale_or_wrong_session'
             if not timedelta(0)<=now-at<=MAX_AGE or at.astimezone(NY).date()!=day:
                 raise ValueError('Stale quote')
+            reason='crossed_or_wide_quote'
+            diagnostics[s]['spread_pct']=str(((ask-bid)/bid*100).quantize(D('.0001')))
             if bid>ask or (ask-bid)/bid>MAX_SPREAD:
                 raise ValueError('Crossed or wide quote')
             accepted[s]={'bid_pln_reference':str(bid*fx[fx_day]),
@@ -109,11 +121,12 @@ def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quo
                          'bid_size_shares':bs,'ask_size_shares':az}
         except (KeyError,ValueError,TypeError,ArithmeticError):
             rejected.append(s)
-    if include_quotes and not rejected:
+            reasons[s]=dict(diagnostics.get(s,{}),reason=reason)
+    if include_quotes and (not rejected or include_partial):
         result['quotes']=accepted
     return dict(result,state='qualified' if not rejected else 'incomplete_quotes',
                 ready=not rejected,fx_date=str(fx_day),valid_quotes=len(accepted),
-                rejected_symbols=rejected,session_close_utc=close.isoformat())
+                rejected_symbols=rejected,rejection_details=reasons,session_close_utc=close.isoformat())
 
 
 def main():
