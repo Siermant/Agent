@@ -24,7 +24,7 @@ def number(value, low, high):
     return v
 
 
-def plan(ranking, assumptions, cohort_index=0, now=None):
+def plan(ranking, assumptions, cohort_index=0, now=None, *, aligned_sessions=None):
     now = now or datetime.now(timezone.utc)
     if (ranking.get('research_only') is not True or ranking.get('real_trading') is not False
             or ranking.get('eligible_for_orders') is not False or ranking.get('currency') != 'PLN'):
@@ -34,10 +34,24 @@ def plan(ranking, assumptions, cohort_index=0, now=None):
         raise ValueError('Ranking expired or future dated')
     if assumptions.get('research_only') is not True:
         raise ValueError('Explicit research assumptions required')
-    if not 0 <= cohort_index < len(ranking['cohorts']):
-        raise ValueError('Invalid cohort')
-    cohort = ranking['cohorts'][cohort_index]
-    rows = cohort['instruments']
+    if cohort_index is None:
+        cohorts=ranking['cohorts']
+        if not aligned_sessions or len(cohorts)!=2 or {c['mic'] for c in cohorts}!={'XNYS','XNAS'}:
+            raise ValueError('Explicit aligned US calendars required')
+        if set(aligned_sessions)!={'XNYS','XNAS'} or aligned_sessions['XNYS']!=aligned_sessions['XNAS']:
+            raise ValueError('Different US session calendars')
+        dates=[d for d,_ in aligned_sessions['XNYS']]
+        if len(dates)!=61 or dates!=sorted(set(dates)):
+            raise ValueError('Invalid aligned session window')
+        if any(c['source']!='alpaca_iex_daily' or c['sessions']!=61
+               or c['first_session']!=dates[0] or c['last_session']!=dates[-1] for c in cohorts):
+            raise ValueError('Ranking does not match aligned calendars')
+    else:
+        if not 0 <= cohort_index < len(ranking['cohorts']):
+            raise ValueError('Invalid cohort')
+        cohorts=[ranking['cohorts'][cohort_index]]
+    pairs=[(c,r) for c in cohorts for r in c['instruments']]
+    rows=[r for _,r in pairs]
     if len({r['instrument_id'] for r in rows}) != len(rows):
         raise ValueError('Duplicate ranked instrument')
     meta = assumptions['instruments']
@@ -48,7 +62,7 @@ def plan(ranking, assumptions, cohort_index=0, now=None):
     max_adv_fraction = number(assumptions['max_adv_fraction'], D('.000001'), D('.01'))
     capital = CAPITALS['global']
     candidates, excluded = [], []
-    for r in rows:
+    for cohort,r in pairs:
         ident = r['instrument_id']
         if r['mic'] != cohort['mic'] or r['source'] != cohort['source'] or r['last_session'] != cohort['last_session']:
             raise ValueError('Inconsistent cohort')
@@ -126,7 +140,7 @@ def plan(ranking, assumptions, cohort_index=0, now=None):
                   'allocated_pln':str(principal),'estimated_cost_pln':str(cost),'allocations':allocations})
     return {'research_only':True,'real_trading':False,'eligible_for_orders':False,
             'initial_cash_only':True,'assumptions_verified':False,'etf_lookthrough':False,
-            'method':'initial_allocation_v1','cohort_index':cohort_index,'plans':plans,'excluded':excluded}
+            'method':'initial_allocation_v1','cohort_index':cohort_index,'aligned_us_research':cohort_index is None,'plans':plans,'excluded':excluded}
 
 
 def main():
