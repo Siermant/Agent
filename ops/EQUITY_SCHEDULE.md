@@ -156,3 +156,21 @@ Source: https://docs.alpaca.markets/us/reference/stocklatestquotesingle-1
 documents size in shares after November 3, 2025. Quote conditions and full
 market depth are not independently verified. Actual IEX/clock endpoint
 qualification and first paper opening on VM are still pending.
+
+## Corporate actions qualification (development, no accounting)
+The separate corporate_actions module queries the read-only data endpoint
+for the current 26 stock candidates, process date today-60 to today+30
+(New York date), in bounded chunks with data_quality=all and no type filter.
+It validates pagination, UUID uniqueness, dates and requested symbol matches.
+Simple USD ordinary dividends and plain forward/reverse splits are classified
+as candidates, not applied. Incomplete, special, complex or ambiguous records
+require review; unknown categories or malformed responses fail the scan.
+No changes to holdings, cash, opening receipt, or valuation service.
+Process-date coverage differs from entitlement-date coverage, and Alpaca
+warns about delays; no completeness guarantee. Before automatic accounting,
+qualify actual API response on VM, retain immutable event revisions, verify
+identity and entitlement against holdings chronology, reconcile dividend
+receivables/payment and taxes/FX, and handle fractional shares explicitly.
+Existing v0.15 price-only marks remain labelled as such. This is not yet a
+gate in the deployed service; never treat feed_qualified as safe to trade.
+Reference: https://docs.alpaca.markets/us/reference/corporateactions-1
