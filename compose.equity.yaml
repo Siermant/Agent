@@ -1,0 +1,11 @@
+services:
+  agent:
+    environment:
+      GTA_EQUITY_REPORT_DIR: /equity-report
+    volumes:
+      - type: bind
+        source: /var/cache/gta-equity-export
+        target: /equity-report
+        read_only: true
+        bind:
+          create_host_path: false
