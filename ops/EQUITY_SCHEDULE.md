@@ -94,3 +94,24 @@ production Compose migration and rollback procedure are still required.
 No current trading, data sharing with remote diagnostics, or global
 ledger changes. Provider data remains limited to the qualified 28 US
 instruments; calendar independence and trade eligibility remain unverified.
+
+## v0.14 guarded migration
+The migration tool ops/migrate_equity_panel.py accepts a fresh (<=24h)
+successful qualification manifest for candidate 74b1c5638414e46eaa599cf01a1568773ffc1204 only.
+It checks the existing v0.13 core BTC/ETH service and enabled timer, stages
+and tests reviewed code, runs crypto preflight, then switches the research
+service and verifies its actual production export with the candidate image.
+Only then stops the crypto container, archives the named volume with CRC
+verification, tags the previous image, changes COMPOSE_FILE to add the
+reviewed read-only overlay, and starts the candidate. Verifies 15 accounts,
+fill count, health, remote diagnostic readiness, 28 equity rankings and
+actual read-only mount. On caught exception, attempts to restore previous
+image, research code, unit, environment and timer. No database restore or
+volume deletion. Retains recovery note, previous code and archive.
+Rollback is best effort: power loss/SIGKILL, rollback command failures,
+or filesystem failure require manual recovery. No successful VM migration
+has been confirmed yet. Do not use the older image-only updater after
+this Compose migration; its explicit two-file configuration would omit the
+equity overlay. Adapt and qualify future updater before next image change.
+The qualification candidate does not include the migration tool; fetch the
+separately reviewed installer commit to a temporary root-owned directory.
