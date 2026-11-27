@@ -75,3 +75,42 @@ class GlobalInitialTests(unittest.TestCase):
         with self.assertRaises(ValueError):validate(p,NOW)
         p=plan();p['plans'][-1]['allocations']=p['plans'][0]['allocations']
         with self.assertRaises(ValueError):validate(p,NOW)
+
+    def test_only_selected_symbols_required(self):
+        s=snapshot();s['quotes']={'WMT':s['quotes']['WMT']}
+        with tempfile.TemporaryDirectory() as tmp:
+            r=open_initial(tmp,plan(),s,lambda:NOW)
+            self.assertEqual(len(r['fills']),4)
+            self.assertEqual(r['selected_symbols'],['WMT'])
+            self.assertEqual(r['unquoted_symbols'],[])
+    def test_missing_selected_blocks_default(self):
+        s=snapshot();del s['quotes']['WMT']
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):open_initial(tmp,plan(),s,lambda:NOW)
+            self.assertFalse((Path(tmp)/'global-paper.db').exists())
+    def test_explicit_cash_fallback_and_coverage(self):
+        p=plan()
+        symbols=['WMT','COST','KO','PEP']
+        ids=['alpaca:XNAS:WMT','alpaca:XNAS:COST','alpaca:XNYS:KO','alpaca:XNAS:PEP']
+        for sym,ident in zip(symbols[1:],ids[1:]):
+            p['instruments'].append({'mic':ident.split(':')[1],'ticker':sym,
+                'research_eligible':True,'sector_assumed':'consumer_staples','iex_turnover_20_pln':'10000000'})
+        for row in p['plans'][:-1]:
+            row['allocations']=[dict(row['allocations'][0],instrument_id=k) for k in ids]
+            row.update(cash_pln='41008',allocated_pln='8974.04',estimated_cost_pln='17.96')
+        s=snapshot()
+        s.update(state='incomplete_quotes',ready=False,expected_instruments=4,valid_quotes=3,rejected_symbols=['PEP'])
+        s['quotes']={k:s['quotes'][k] for k in symbols[:3]}
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):open_initial(tmp,p,s,lambda:NOW)
+            self.assertFalse((Path(tmp)/'global-paper.db').exists())
+            r=open_initial(tmp,p,s,lambda:NOW,allow_unquoted_cash=True)
+            self.assertEqual(len(r['fills']),12)
+            self.assertEqual(r['unquoted_symbols'],['PEP'])
+            self.assertEqual(r['quote_policy'],'selected_plan_cash_fallback')
+            self.assertEqual(len(r['skipped']),4)
+            self.assertTrue(all(v['reason']=='unqualified_quote_cash_retained' for v in r['skipped']))
+        del s['quotes']['KO'];s.update(valid_quotes=2,rejected_symbols=['PEP','KO'])
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):open_initial(tmp,p,s,lambda:NOW,allow_unquoted_cash=True)
+            self.assertFalse((Path(tmp)/'global-paper.db').exists())
