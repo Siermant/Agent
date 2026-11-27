@@ -13,7 +13,7 @@ from pathlib import Path
 from .global_paper_initial import ACCOUNTS,CAPITAL,IDS,read_existing,number
 from .equity_data import moment
 from .equity_job import credentials
-from .equity_quotes import clients,qualify
+from .equity_quotes import clients,qualify,quote_delay,session_quote_valid
 from .ledger import Ledger
 from .research_cycle import publish
 from .global_panel import export_panel
@@ -50,6 +50,11 @@ def mark(root,fetch,clock=None):
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         if not path.is_file():
             return dict(FLAGS,state='waiting_for_initial_open',checked_utc=clock().isoformat())
+        receipt=read_existing(path)
+        source=receipt['quote_source']
+        delay=quote_delay(source)
+        if receipt.get('quote_delay_seconds',0)!=delay:
+            raise ValueError('Invalid receipt delay')
         holdings=read_holdings(path)
         selected=sorted({IDS[k] for r in holdings.values() for k in r['positions']})
         if not selected:
@@ -62,14 +67,14 @@ def mark(root,fetch,clock=None):
         if (snapshot.get('state')!='qualified' or snapshot.get('market_open') is not True
             or snapshot.get('research_only') is not True or snapshot.get('real_trading') is not False
             or snapshot.get('eligible_for_orders') is not False
-            or snapshot.get('source')!='alpaca_iex_latest' or snapshot.get('fx_source')!='nbp_table_a_prior_day'
+            or snapshot.get('source')!=source or snapshot.get('quote_delay_seconds',0)!=delay or snapshot.get('fx_source')!='nbp_table_a_prior_day'
             or not timedelta(0)<=now-moment(snapshot['checked_utc'])<=timedelta(seconds=15)
             or now>=moment(snapshot['session_close_utc']) or set(snapshot['quotes'])!=set(selected)):
             raise ValueError('Invalid valuation snapshot')
         bids={}
         for s,q in snapshot['quotes'].items():
             bid,ask=number(q['bid_pln_reference']),number(q['ask_pln_reference'])
-            if not 0<bid<=ask or (ask-bid)/bid>D('.01') or not timedelta(0)<=now-moment(q['observed_at'])<=timedelta(seconds=60):
+            if not 0<bid<=ask or (ask-bid)/bid>D('.01') or not session_quote_valid(moment(q['observed_at']),now,delay,moment(snapshot['session_close_utc'])):
                 raise ValueError('Stale or invalid valuation quote')
             bids[s]=bid
         rows=[]
@@ -106,7 +111,9 @@ def mark(root,fetch,clock=None):
                 if set(vals)==set(ACCOUNTS):
                     history.append({'at':stamp,'equity_pln':vals})
         return dict(base,state='valued',valued_at=now.isoformat(),fx_date=snapshot['fx_date'],
-                    quote_source='alpaca_iex_latest',accounts=rows,history=history,fills=fills)
+                    quote_source=source,quote_delay_seconds=delay,
+                    quote_observed_from_utc=min(moment(q['observed_at']) for q in snapshot['quotes'].values()).isoformat(),
+                    quote_observed_to_utc=max(moment(q['observed_at']) for q in snapshot['quotes'].values()).isoformat(),accounts=rows,history=history,fills=fills)
 
 def main():
     root=Path(os.environ['STATE_DIRECTORY'])
@@ -114,7 +121,9 @@ def main():
         raise SystemExit('Unexpected isolated state directory')
     def fetch(symbols):
         key,secret=credentials(os.environ['CREDENTIALS_DIRECTORY'])
-        return qualify(*clients(key,secret,symbols=symbols),symbols=symbols,include_quotes=True)
+        receipt=read_existing(root/'global-paper.db')
+        feed='delayed_sip' if quote_delay(receipt['quote_source'])==900 else 'iex'
+        return qualify(*clients(key,secret,symbols=symbols,feed=feed),symbols=symbols,include_quotes=True,feed=feed)
     try:
         result=mark(root,fetch)
         if result['state']=='valued':
