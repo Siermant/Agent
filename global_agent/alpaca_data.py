@@ -51,7 +51,7 @@ def history(request, expected, adjustment):
     params={'symbols':','.join(symbols),'timeframe':'1Day','feed':'iex',
             'currency':'USD','adjustment':adjustment,'limit':1000,'sort':'asc',
             'start':datetime.combine(min(days),time(),NY).isoformat(),
-            'end':datetime.combine(max(days)+timedelta(days=1),time(),NY).isoformat(),
+            'end':(datetime.combine(max(days)+timedelta(days=1),time(),NY)-timedelta(microseconds=1)).isoformat(),
             'asof':str(max(days))}
     found, tokens = {}, set()
     for _ in range(100):
@@ -114,7 +114,7 @@ def collect(manifest, calendar, request, now=None):
     expected={(s,d) for s,r in instruments.items() for m,d in sessions if r['mic']==m}
     raw=history(request,expected,'raw')
     adjusted=history(request,expected,'split,dividend')
-    retrieved=max(now,datetime.now(timezone.utc)) if now is not None else datetime.now(timezone.utc)
+    retrieved=max(now,datetime.now(timezone.utc))
     return [dict(instruments[s],currency='USD',exchange_tz=NY.key,session=str(d),
                  close_at=sessions[instruments[s]['mic'],d].isoformat(),retrieved_at=retrieved.isoformat(),
                  raw_close=str(raw[s,d]),adjusted_close=str(adjusted[s,d]),
