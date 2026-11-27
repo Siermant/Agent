@@ -1,0 +1,27 @@
+[Unit]
+Description=GTA isolated Global paper valuation (no trades)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+WorkingDirectory=/opt/gta-global-mark
+StateDirectory=gta-global-paper
+StateDirectoryMode=0700
+LoadCredential=alpaca-paper.json:/etc/gta-secrets/alpaca-paper.json
+ExecStart=/usr/bin/python3 -B -s -m global_agent.global_paper_mark
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryMax=192M
+CPUQuota=50%
+TimeoutStartSec=2min
