@@ -11,6 +11,7 @@ import signal
 import threading
 
 from .ledger import Ledger
+from .presentation import request_path, equity_chart
 from .service_guard import service_lock
 from .preflight import resources
 from .diagnostics import statistics, report, decision_counts, recent_executions
@@ -21,7 +22,7 @@ from .paper_live import PaperRunner
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.10.0-dev"
+VERSION = "0.11.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
@@ -107,6 +108,7 @@ def render(state):
         fresh = x["fresh"] and market["healthy"] and state["strategies_running"]
         return row([x["account"], percent(x["return_pct"]), percent(x["current_drawdown_pct"]), f"{float(x['fees_pln']):.2f}", x["fills"], "Aktualna" if fresh else ("Brak wyceny" if x["equity_pln"] is None else "Ostatnia / nieaktualna")])
     stats_rows = "".join(stat_row(x) for x in stats)
+    chart = equity_chart(stats)
     trades = "".join(row([x["at"], x["account"], x["symbol"], "Kupno" if x["side"]=="buy" else "Sprzedaż", x["quantity"], x["price_pln"], x["fee_pln"]]) for x in state.get("recent_executions", [])[:50])
     backup = state.get("backup", {})
     backup_label = {"ok":"Wykonana", "failed":"Błąd", "waiting":"Oczekiwanie"}.get(backup.get("state"), "Nieznany")
@@ -137,6 +139,7 @@ a{color:#9ed7ff} .status{font-weight:600}
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Kapitał startowy</th><th>Gotówka</th><th>Ostatnia wycena</th><th>Czas UTC</th><th>Transakcje</th></tr></thead><tbody>""" + portfolios + """</tbody></table></div></section>
 <section><h2>Porównanie wariantów — krypto</h2><p>Zwrot od startu, bieżące obsunięcie od szczytu i prowizje. Ostatnie wyceny mogą być nieaktualne. Benchmark ma inną ekspozycję, brak podatków.</p>
 <div class="scroll"><table><thead><tr><th>Portfel</th><th>Zwrot</th><th>Obsunięcie</th><th>Prowizje PLN</th><th>Transakcje</th><th>Wycena</th></tr></thead><tbody>""" + stats_rows + """</tbody></table></div></section>
+<section><h2>Zwrot strategii A–E — ostatnie 30 dni</h2>""" + chart + """</section>
 <section><h2>Ostatnie transakcje symulacyjne</h2><div class="scroll"><table><thead><tr><th>Czas UTC</th><th>Portfel</th><th>Instrument</th><th>Strona</th><th>Ilość</th><th>Cena PLN</th><th>Prowizja PLN</th></tr></thead><tbody>""" + trades + """</tbody></table></div></section>
 <section><h2>Diagnostyka</h2><p>Kopia lokalna: """ + escape(backup_label + " " + str(backup.get("day", ""))) + """</p>
 <p>""" + escape(resource_label) + """</p>
@@ -148,7 +151,8 @@ a{color:#9ed7ff} .status{font-weight:600}
 def handler(ledger, store, runtime=None):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.path == "/healthz":
+            path = request_path(self.path)
+            if path == "/healthz":
                 try:
                     ledger.status()
                     store.status(now_utc())
@@ -156,12 +160,12 @@ def handler(ledger, store, runtime=None):
                     self.send_error(503)
                     return
                 self.respond(b"ok", "text/plain; charset=utf-8")
-            elif self.path in ("/", "/api/status", "/raport.zip"):
+            elif path in ("/", "/api/status", "/raport.zip"):
                 try:
                     state = view(ledger, store, runtime)
-                    if self.path == "/":
+                    if path == "/":
                         body, kind = render(state).encode("utf-8"), "text/html; charset=utf-8"
-                    elif self.path == "/raport.zip":
+                    elif path == "/raport.zip":
                         body, kind = report(ledger, store, state), "application/zip"
                     else:
                         body, kind = json.dumps(state, default=str).encode(), "application/json"
