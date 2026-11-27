@@ -11,6 +11,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal as D, ROUND_DOWN, ROUND_HALF_UP
 from pathlib import Path
+from contextlib import closing
 
 from .ledger import Ledger, CAPITALS, EXPOSURE
 from .equity_data import moment
@@ -48,10 +49,12 @@ def validate(plan,now):
     if [number(cost[k]) for k in ('commission_bps','spread_slippage_bps','minimum_fee_pln','minimum_adv_pln','max_adv_fraction')]!=[D(10),D(10),MIN_FEE,D(100000),D('.001')]:
         raise ValueError('Unexpected cost scenario')
     eligible={}
+    seen=set()
     for r in plan['instruments']:
         ident=f"alpaca:{r['mic']}:{r['ticker']}"
-        if ident in eligible:
+        if ident in seen:
             raise ValueError('Duplicate instrument metadata')
+        seen.add(ident)
         if ident in IDS and r.get('research_eligible') is True and r['sector_assumed']==SECTORS[IDS[ident]]:
             adv=number(r['iex_turnover_20_pln'])
             if adv>=D(100000):
@@ -98,7 +101,7 @@ def account_summary(ledger):
 
 def read_existing(path):
     # Read-only SQLite: do not recreate a lost/corrupt database or reset capital.
-    with sqlite3.connect(path.as_uri()+'?mode=ro',uri=True) as db:
+    with closing(sqlite3.connect(path.as_uri()+'?mode=ro',uri=True)) as db:
         row=db.execute('SELECT payload FROM initial_receipt WHERE id=1').fetchone()
         if row is None:
             raise ValueError('Missing initial receipt')
@@ -123,6 +126,7 @@ def open_initial(root,plan,snapshot,clock=None):
         if (snapshot.get('ready') is not True or snapshot.get('market_open') is not True
             or snapshot.get('research_only') is not True or snapshot.get('real_trading') is not False
             or snapshot.get('eligible_for_orders') is not False or snapshot.get('state')!='qualified'
+            or snapshot.get('source')!='alpaca_iex_latest' or snapshot.get('fx_source')!='nbp_table_a_prior_day'
             or not timedelta(0)<=now-moment(snapshot['checked_utc'])<=timedelta(seconds=15)):
             raise ValueError('Fresh qualified snapshot required')
         close=moment(snapshot['session_close_utc'])
@@ -172,7 +176,7 @@ def open_initial(root,plan,snapshot,clock=None):
             with ledger.tx() as db:
                 db.execute('CREATE TABLE initial_receipt(id INTEGER PRIMARY KEY CHECK(id=1),payload TEXT NOT NULL)')
                 db.execute('INSERT INTO initial_receipt VALUES(1,?)',(json.dumps(receipt,allow_nan=False),))
-            with sqlite3.connect(temp,isolation_level=None) as db:
+            with closing(sqlite3.connect(temp,isolation_level=None)) as db:
                 if db.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone()[0]!=0:
                     raise ValueError('Could not checkpoint ledger')
                 if db.execute('PRAGMA journal_mode=DELETE').fetchone()[0]!='delete':
