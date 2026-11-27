@@ -96,3 +96,32 @@ class RebalancePreviewTests(unittest.TestCase):
             self.assertIn('unresolved_event_history',event_blocks(changed,a,NOW.date(),LATER.date())['KO'])
             with self.assertRaises(ValueError):
                 read_audit(Path(tmp)/'corporate-audit.db',LATER+timedelta(days=3))
+
+    def test_delayed_source_selected_quotes_only(self):
+        # Use a regular US session fixture eight days after opening.
+        from test_delayed_global import delayed
+        at=NOW+timedelta(days=10)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            open_initial(root,plan(),delayed(),lambda:NOW)
+            def fetch(symbols):
+                s=delayed(at)
+                s['quotes']={k:s['quotes'][k] for k in symbols}
+                return s
+            mark(root,fetch,lambda:at)
+            receipt,h=read_state(root/'global-paper.db')
+            p=new_plan(at)
+            s=fetch(['WMT','KO'])
+            for q in s['quotes'].values():q['bid_size_shares']=100
+            before=(root/'global-paper.db').read_bytes()
+            r=propose(receipt,h,p,s,{},at)
+            self.assertEqual(r['quote_source'],'alpaca_delayed_sip_latest')
+            self.assertTrue(r['retrospective_prices'])
+            self.assertEqual(r['quote_delay_seconds'],900)
+            self.assertEqual([x['side'] for x in r['accounts'][0]['proposed_changes']],['sell','buy'])
+            self.assertFalse(r['eligible_for_orders'])
+            self.assertEqual((root/'global-paper.db').read_bytes(),before)
+            with self.assertRaises(ValueError):propose(receipt,h,p,current_snapshot(at),{},at)
+            with self.assertRaises(ValueError):propose(receipt,h,p,fetch(['WMT']),{},at)
+            for q in s['quotes'].values():q['observed_at']=at.isoformat()
+            with self.assertRaises(ValueError):propose(receipt,h,p,s,{},at)
