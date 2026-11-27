@@ -67,3 +67,21 @@ point-in-time corporate action model. Actual credentials, API entitlements,
 data licensing and live responses are not verified yet.
 References: https://api.nbp.pl/en.html ; https://docs.alpaca.markets/us/reference/stockbars ;
 https://docs.alpaca.markets/us/docs/market-data-faq
+
+## Research ranking (momentum_risk_v1)
+Run after the validated import:
+```sh
+python3 -m global_agent.equity_rank --input equity_research.json
+```
+61 completed observations, adjusted PLN closes with split/dividend policy.
+Separate cohorts for identical session dates, listing MIC and data source.
+20- and 60-session returns, annualized sample volatility (252-session
+convention) and maximum drawdown in the 61-observation window.
+Heuristic score = 0.4 * return20 + 0.6 * return60 - 0.25 * volatility
+- 0.5 * max drawdown, all in percentage points. Unoptimized, not a return
+forecast. Reject duplicate or future data; exclude series older than five
+calendar days, insufficient observations or missing adjusted prices.
+Calendar verification and point-in-time corporate actions are still absent.
+This is a retrospective screen, not a backtest or trade recommendation.
+Liquidity, costs, sector exposure and instrument eligibility not yet
+evaluated; they must be added before use for portfolio decisions.
