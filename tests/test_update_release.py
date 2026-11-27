@@ -5,7 +5,7 @@ from ops.update_release import activate, check_state, TAG, COMPOSE
 from unittest.mock import patch
 
 OLD='sha256:'+'a'*64
-NEW='sha256:'+'b'*64'
+NEW='sha256:'+'b'*64
 
 def state(version='0.11',fills=7,ready=True):
     return {'version':version,'real_trading':False,'mode':'crypto-paper',
