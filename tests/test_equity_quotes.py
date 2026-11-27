@@ -32,3 +32,18 @@ class EquityQuotesTests(unittest.TestCase):
         self.assertEqual(r['state'],'session_changed')
     def test_stale_clock(self):
         with self.assertRaises(ValueError):qualify(lambda:dict(clock(),timestamp=(NOW-timedelta(minutes=1)).isoformat()),quotes,fx,lambda:NOW)
+
+    def test_selected_partial_diagnostics(self):
+        q=quotes()
+        q['quotes']={s:q['quotes'][s] for s in ('WMT','AAPL','HON')}
+        q['quotes']['WMT']['t']=(NOW-timedelta(seconds=70)).isoformat()
+        q['quotes']['AAPL']['ap']='102'
+        r=qualify(clock,lambda:q,fx,lambda:NOW,symbols=['WMT','AAPL','HON','JPM'],include_quotes=True,include_partial=True)
+        self.assertFalse(r['ready'])
+        self.assertEqual(set(r['quotes']),{'HON'})
+        self.assertEqual(r['rejection_details']['WMT']['reason'],'stale_or_wrong_session')
+        self.assertEqual(r['rejection_details']['WMT']['age_seconds'],70)
+        self.assertEqual(r['rejection_details']['AAPL']['reason'],'crossed_or_wide_quote')
+        self.assertEqual(r['rejection_details']['JPM']['reason'],'missing_quote')
+        strict=qualify(clock,lambda:q,fx,lambda:NOW,symbols=['WMT','AAPL','HON','JPM'],include_quotes=True)
+        self.assertNotIn('quotes',strict)
