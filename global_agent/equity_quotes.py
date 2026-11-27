@@ -50,7 +50,7 @@ def market_clock(payload,now):
     return opened,nxt_close,nxt_open
 
 
-def qualify(clock_request,quote_request,fx_request=None,clock=None):
+def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quotes=False):
     clock=clock or (lambda:datetime.now(timezone.utc))
     first=clock_request()
     now=clock()
@@ -88,15 +88,20 @@ def qualify(clock_request,quote_request,fx_request=None,clock=None):
             q=quotes[s]
             at=moment(q['t'])
             bid,ask=positive(str(q['bp'])),positive(str(q['ap']))
-            bs,az=positive(str(q['bs'])),positive(str(q['as']))
+            bs,az=q['bs'],q['as']
+            if type(bs) is not int or type(az) is not int or not 0<min(bs,az)<=max(bs,az)<=2**32-1:
+                raise ValueError('Invalid displayed size')
             if not timedelta(0)<=now-at<=MAX_AGE or at.astimezone(NY).date()!=day:
                 raise ValueError('Stale quote')
             if bid>ask or (ask-bid)/bid>MAX_SPREAD:
                 raise ValueError('Crossed or wide quote')
             accepted[s]={'bid_pln_reference':str(bid*fx[fx_day]),
-                         'ask_pln_reference':str(ask*fx[fx_day]),'observed_at':at.isoformat()}
+                         'ask_pln_reference':str(ask*fx[fx_day]),'observed_at':at.isoformat(),
+                         'bid_size_shares':bs,'ask_size_shares':az}
         except (KeyError,ValueError,TypeError,ArithmeticError):
             rejected.append(s)
+    if include_quotes and not rejected:
+        result['quotes']=accepted
     return dict(result,state='qualified' if not rejected else 'incomplete_quotes',
                 ready=not rejected,fx_date=str(fx_day),valid_quotes=len(accepted),
                 rejected_symbols=rejected,session_close_utc=close.isoformat())
