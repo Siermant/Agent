@@ -23,7 +23,7 @@ from .paper_live import PaperRunner, configured_universe
 from .market import QuoteStore, fetch, now_utc
 
 LOG = logging.getLogger("global_agent")
-VERSION = "0.13.0-dev"
+VERSION = "0.14.0-dev"
 
 
 def poll(store, stop, interval=30, source=fetch, runner=None, runtime=None):
