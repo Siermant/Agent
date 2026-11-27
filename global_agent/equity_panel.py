@@ -25,8 +25,14 @@ def summary(directory, now=None):
     root=Path(directory)
     base={'automated_trading':False,'research_only':True}
     try:
-        status=read_json(root/'status.json')
-        ranking=read_json(root/'ranking.json')
+        snapshot_path=root/'panel.json'
+        snapshot=read_json(snapshot_path)
+        status=snapshot['status']
+        if status.get('state')!='ok':
+            if (status.get('research_only') is not True or status.get('real_trading') is not False or status.get('eligible_for_orders') is not False):
+                raise ValueError('Unsafe status flags')
+            return dict(base,state='scan_not_ok')
+        ranking=snapshot['ranking']
         for obj in (status,ranking):
             if (obj.get('research_only') is not True or obj.get('real_trading') is not False
                     or obj.get('eligible_for_orders') is not False):
@@ -47,7 +53,8 @@ def summary(directory, now=None):
                 raise ValueError('Unsupported cohort')
             rows=[]
             for i,r in enumerate(c['instruments'],1):
-                if r['instrument_id'] in seen or r['mic']!=mic or r['rank']!=i:
+                if (r['instrument_id'] in seen or r['mic']!=mic or r['rank']!=i
+                        or not isinstance(r['ticker'],str) or len(r['ticker'])>32):
                     raise ValueError('Invalid instrument')
                 seen.add(r['instrument_id'])
                 values={}
