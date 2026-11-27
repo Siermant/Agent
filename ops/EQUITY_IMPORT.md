@@ -160,3 +160,21 @@ sessions, market depth, FX execution, corporate actions or tax accounting.
 Next gate: validate a real market data source and exchange calendars, then
 design separate paper execution with actual fresh bid/ask, instrument eligibility,
 persistent decisions and explicit compatibility/rollback plan.
+
+## First actual provider preflight — 2026-11-27
+Operator supplied successful terminal output at 09:29:57 UTC:
+NBP USD/EUR 93 rates each; XNAS 84 sessions and 252 raw/252 adjusted bars
+for AAPL, MSFT, QQQ; XNYS 84 sessions and 84 raw/84 adjusted bars for IBM;
+last session 2026-11-25. ready=true, eligible_for_orders=false.
+This confirms access to these endpoints and instruments, not independent
+calendar verification, current executable quotes or broader entitlements.
+New read-only scan:
+```sh
+python3 -m global_agent.equity_scan --prompt
+```
+It requests the same four instruments and provider calendars, converts
+using prior NBP FX, validates complete sessions and emits retrospective
+rankings by comparable venue cohort. No allocation, no persistent keys,
+no raw market data publication, no ledger writes. Execute locally using
+Paper credentials only; never share credentials or screenshots of them.
+No scheduled data collection or automatic trade permissions yet.
