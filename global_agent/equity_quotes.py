@@ -19,7 +19,15 @@ MAX_AGE=timedelta(seconds=60)
 MAX_SPREAD=D('.01')
 
 
-def clients(key,secret):
+def universe(symbols=None):
+    selected=tuple(SYMBOLS if symbols is None else symbols)
+    if not selected or len(set(selected))!=len(selected) or not set(selected)<=set(SYMBOLS):
+        raise ValueError('Invalid quote selection')
+    return sorted(selected)
+
+
+def clients(key,secret,*,symbols=None):
+    selected=universe(symbols)
     if not key or not secret or any(c.isspace() for c in key+secret):
         raise ValueError('Invalid credentials')
     opener=build_opener(ProxyHandler({}),NoRedirect())
@@ -33,7 +41,7 @@ def clients(key,secret):
         return json.loads(raw,parse_float=D)
     return (lambda:read('https://paper-api.alpaca.markets/v2/clock'),
             lambda:read('https://data.alpaca.markets/v2/stocks/quotes/latest?'+
-                        urlencode({'symbols':','.join(SYMBOLS),'feed':'iex','currency':'USD'})))
+                        urlencode({'symbols':','.join(selected),'feed':'iex','currency':'USD'})))
 
 
 def market_clock(payload,now):
@@ -50,7 +58,8 @@ def market_clock(payload,now):
     return opened,nxt_close,nxt_open
 
 
-def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quotes=False):
+def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quotes=False,symbols=None):
+    selected=universe(symbols)
     clock=clock or (lambda:datetime.now(timezone.utc))
     first=clock_request()
     now=clock()
@@ -58,7 +67,7 @@ def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quo
     result={'research_only':True,'real_trading':False,'eligible_for_orders':False,
             'source':'alpaca_iex_latest','fx_source':'nbp_table_a_prior_day',
             'executable_fx_verified':False,'consolidated_quotes_verified':False,
-            'expected_instruments':len(SYMBOLS),'ready':False,'checked_utc':now.isoformat(),
+            'expected_instruments':len(selected),'ready':False,'checked_utc':now.isoformat(),
             'market_open':opened,'next_open':nxt.isoformat()}
     if not opened:
         return dict(result,state='market_closed')
@@ -77,13 +86,13 @@ def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quo
     if not opened2 or close2!=close or now.astimezone(NY).date()!=day:
         return dict(result,state='session_changed',market_open=opened2)
     quotes=payload['quotes']
-    if not isinstance(quotes,dict) or not set(quotes)<=set(SYMBOLS):
+    if not isinstance(quotes,dict) or not set(quotes)<=set(selected):
         raise ValueError('Unexpected quote universe')
     if payload.get('currency','USD')!='USD':
         raise ValueError('Unexpected currency')
     accepted={}
     rejected=[]
-    for s in SYMBOLS:
+    for s in selected:
         try:
             q=quotes[s]
             at=moment(q['t'])
