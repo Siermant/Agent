@@ -17,6 +17,20 @@ from .fx_reference import rates
 SYMBOLS=sorted(s for ss in QUALIFIED.values() for s in ss if s not in ('QQQ','TLT'))
 MAX_AGE=timedelta(seconds=60)
 MAX_SPREAD=D('.01')
+FEEDS={'iex':('alpaca_iex_latest',0),'delayed_sip':('alpaca_delayed_sip_latest',900)}
+
+def quote_delay(source):
+    for label,delay in FEEDS.values():
+        if source==label:return delay
+    raise ValueError('Unsupported quote source')
+
+def session_quote_valid(at,now,delay,close):
+    effective=now-timedelta(seconds=delay)
+    local=at.astimezone(NY)
+    # Conservative US regular-session lower bound; provider clock enforces close.
+    return (local.date()==now.astimezone(NY).date() and (local.hour,local.minute)>=(9,30)
+            and at<close and timedelta(0)<=effective-at<=MAX_AGE)
+
 
 
 def universe(symbols=None):
@@ -26,7 +40,8 @@ def universe(symbols=None):
     return sorted(selected)
 
 
-def clients(key,secret,*,symbols=None):
+def clients(key,secret,*,symbols=None,feed='iex'):
+    if feed not in FEEDS:raise ValueError('Unsupported feed')
     selected=universe(symbols)
     if not key or not secret or any(c.isspace() for c in key+secret):
         raise ValueError('Invalid credentials')
@@ -41,7 +56,7 @@ def clients(key,secret,*,symbols=None):
         return json.loads(raw,parse_float=D)
     return (lambda:read('https://paper-api.alpaca.markets/v2/clock'),
             lambda:read('https://data.alpaca.markets/v2/stocks/quotes/latest?'+
-                        urlencode({'symbols':','.join(selected),'feed':'iex','currency':'USD'})))
+                        urlencode({'symbols':','.join(selected),'feed':feed,'currency':'USD'})))
 
 
 def market_clock(payload,now):
@@ -58,19 +73,22 @@ def market_clock(payload,now):
     return opened,nxt_close,nxt_open
 
 
-def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quotes=False,symbols=None,include_partial=False):
+def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quotes=False,symbols=None,include_partial=False,feed='iex'):
+    source,delay=FEEDS[feed]
     selected=universe(symbols)
     clock=clock or (lambda:datetime.now(timezone.utc))
     first=clock_request()
     now=clock()
     opened,close,nxt=market_clock(first,now)
     result={'research_only':True,'real_trading':False,'eligible_for_orders':False,
-            'source':'alpaca_iex_latest','fx_source':'nbp_table_a_prior_day',
+            'source':source,'quote_delay_seconds':delay,'fx_source':'nbp_table_a_prior_day',
             'executable_fx_verified':False,'consolidated_quotes_verified':False,
             'expected_instruments':len(selected),'ready':False,'checked_utc':now.isoformat(),
             'market_open':opened,'next_open':nxt.isoformat()}
     if not opened:
         return dict(result,state='market_closed')
+    if delay and (now-timedelta(seconds=delay)).astimezone(NY).strftime('%H:%M')<'09:30':
+        return dict(result,state='quotes_unavailable')
     # FX first, then obtain quotes so their lifetime is not spent waiting for NBP.
     day=now.astimezone(NY).date()
     kwargs={} if fx_request is None else {'request':fx_request}
@@ -110,7 +128,7 @@ def qualify(clock_request,quote_request,fx_request=None,clock=None,*,include_quo
             if type(bs) is not int or type(az) is not int or not 0<min(bs,az)<=max(bs,az)<=2**32-1:
                 raise ValueError('Invalid displayed size')
             reason='stale_or_wrong_session'
-            if not timedelta(0)<=now-at<=MAX_AGE or at.astimezone(NY).date()!=day:
+            if not session_quote_valid(at,now,delay,close):
                 raise ValueError('Stale quote')
             reason='crossed_or_wide_quote'
             diagnostics[s]['spread_pct']=str(((ask-bid)/bid*100).quantize(D('.0001')))
