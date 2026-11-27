@@ -208,10 +208,16 @@ def propose(receipt,holdings,plan,snapshot,blocks,now):
             charge=fee(qty*price)
             debit=qty*price+charge
             after_cash=cash-debit
-            after_pos=dict(pos,**{k:qty})
+            after_pos={**pos,k:qty}
             after_invested=value(after_pos)
             after=after_cash+after_invested
+            sector_totals={}
+            for j,q in after_pos.items():
+                label=SECTORS[IDS[j]]
+                sector_totals[label]=sector_totals.get(label,D(0))+q*quotes[j][0]
             if (debit>cap or after_cash<after*D('.20') or after_invested>after*EXPOSURE[p]
+                or any(q*quotes[j][0]>after*D('.05') for j,q in after_pos.items())
+                or any(v>after*D('.20') for v in sector_totals.values())
                 or qty*bid>after*D('.05') or sector_value+qty*bid>after*D('.20')
                 or after<=day_start*D('.98') or after<=week_start*D('.95') or after<=peak*D('.90')):
                 continue
@@ -238,6 +244,9 @@ def main():
             print(json.dumps(dict(FLAGS,state='waiting_for_initial_open')))
             return
         receipt,h=read_state(a.ledger)
+        if (receipt.get('one_time_initial_only') is not True or receipt.get('rebalance_enabled') is not False
+                or receipt.get('simulated') is not True):
+            raise ValueError('Expected initial-only experiment')
         now=datetime.now(timezone.utc)
         if now-moment(receipt['generated_utc'])<COOLDOWN:
             print(json.dumps(dict(FLAGS,state='cooldown',earliest_review_utc=(moment(receipt['generated_utc'])+COOLDOWN).isoformat())))
