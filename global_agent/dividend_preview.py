@@ -50,6 +50,12 @@ def preview(receipt,report,now=None):
     # Any split, merger or other non-cash event on held symbol can invalidate
     # initial quantities; block forecasts for that symbol rather than guessing.
     blocked={s for e in events if e['type']!='cash_dividends' for s in e['symbols']}
+    clusters={}
+    for e in events:
+        if e['type']=='cash_dividends' and e['dates'].get('ex_date'):
+            for s in e['symbols']:
+                clusters.setdefault((s,e['dates']['ex_date']),[]).append(e['id'])
+    overlaps={k for k,ids in clusters.items() if len(ids)>1}
     rows=[]
     totals={a:{'explicit_usd_gross':'0','assumed_usd_gross':'0'} for a in ACCOUNTS}
     for e in events:
@@ -68,6 +74,9 @@ def preview(receipt,report,now=None):
             ex=date.fromisoformat(dates['ex_date'])
             if ex<=opened:
                 r['state']='not_entitled_opened_on_or_after_ex_date'
+                continue
+            if (s,dates['ex_date']) in overlaps:
+                r['state']='overlapping_events_review_required'
                 continue
             if s in blocked or 'payable_date' not in dates or len(e['symbols'])!=1:
                 continue
@@ -93,7 +102,7 @@ def preview(receipt,report,now=None):
     return {'state':'entitlement_preview','research_only':True,'real_trading':False,
             'accounting_enabled':False,'eligible_for_orders':False,'coverage_guaranteed':False,
             'gross_before_tax':True,'totals_are_not_cash':True,'checked_utc':now.isoformat(),
-            'blocked_symbols':sorted(blocked),'accounts':totals,'events':rows}
+            'blocked_symbols':sorted(blocked),'overlapping_cash_events':len(overlaps),'accounts':totals,'events':rows}
 
 
 def main():
